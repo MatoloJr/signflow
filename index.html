@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SignFlow Digital PDF Signing</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+  <link rel="stylesheet" href="styles.css">
+
+</head>
+
+<body>
+  <div class="app">
+
+    <!-- TOP BAR -->
+    <header class="topbar">
+      <div style="display:flex;align-items:center;gap:6px;">
+        <button class="sb-toggle" id="sbToggle" aria-label="Toggle sidebar">☰</button>
+        <div class="logo">
+          <div class="logo-mark">✍</div>
+          SignFlow
+        </div>
+      </div>
+      <div class="status-pill" id="statusPill">
+        <div class="status-dot"></div>
+        <span id="statusTxt">No document</span>
+      </div>
+    </header>
+
+    <div class="main">
+      <div class="overlay-bg" id="overlayBg"></div>
+
+      <!-- SIDEBAR -->
+      <aside class="sidebar" id="sidebar">
+        <div class="sb-body">
+
+          <!-- UPLOAD -->
+          <div class="panel">
+            <div class="ptitle">Document</div>
+            <div class="dropzone" id="dropzone">
+              <input type="file" id="fileInput" accept=".pdf">
+              <span class="dz-ic">📄</span>
+              <div class="dz-t">Upload PDF to sign</div>
+              <div class="dz-s">Click or drag &amp; drop · PDF only</div>
+            </div>
+            <div class="file-card" id="fileCard">
+              <div class="fc-ic">📄</div>
+              <div class="fc-info">
+                <div class="fc-name" id="fcName">—</div>
+                <div class="fc-meta" id="fcMeta">—</div>
+              </div>
+              <span class="fc-chg" id="fcChg">Change</span>
+            </div>
+            <div class="progress-bar" id="progBar">
+              <div class="progress-fill" id="progFill"></div>
+            </div>
+            <div class="scan-badge" id="scanBadge"></div>
+          </div>
+
+          <!-- SIGNATURE PAD -->
+          <div class="panel">
+            <div class="ptitle">Your Signature</div>
+            <div class="sigpad-wrap">
+              <canvas id="sigCanvas" height="130"></canvas>
+              <div class="sigpad-line"></div>
+              <div class="sigpad-hint">✦ Sign above the line</div>
+            </div>
+            <div class="sig-actions">
+              <button class="btn btn-sm btn-danger" id="btnClear">✕ Clear</button>
+            </div>
+          </div>
+
+          <!-- FIELDS -->
+          <div class="panel">
+            <div class="ptitle">Signature Fields</div>
+            <div class="field-list" id="fieldList">
+              <div class="field-empty">Upload a PDF to auto-detect signature fields.</div>
+            </div>
+            <div class="manual-tip" id="manualTip">
+              📍 Click anywhere on the document to place a signature field.
+              <br><br>
+              <button class="btn btn-sm btn-ghost" id="btnCancelPlace">✕ Cancel</button>
+            </div>
+            <div style="margin-top:9px;display:none;" id="addWrap">
+              <button class="btn btn-sm btn-full" id="btnAddField">+ Place field manually</button>
+            </div>
+          </div>
+
+        </div><!-- /sb-body -->
+
+        <!-- DOWNLOAD -->
+        <div class="dl-panel">
+          <div class="signed-banner" id="signedBanner">🎉 <span>All fields signed!</span></div>
+          <button class="btn btn-accent btn-full" id="btnDownload" disabled>⬇ Download Signed PDF</button>
+          <div class="privacy">🔒 Processed in your browser · Nothing leaves your device</div>
+        </div>
+      </aside>
+
+      <!-- VIEWER -->
+      <div class="viewer" id="viewer">
+        <div class="ph" id="placeholder">
+          <div class="ph-ic">📋</div>
+          <div class="ph-t">No document loaded</div>
+          <div class="ph-s">Upload a PDF to preview it and sign the detected fields.</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script src="script.js"></script>
+</body>
+
+</html>
