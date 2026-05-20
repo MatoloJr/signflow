@@ -2,92 +2,64 @@
 pdfjsLib.GlobalWorkerOptions.workerSrc =
   'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
-const { PDFDocument, rgb } = PDFLib;
+const { PDFDocument, rgb, StandardFonts } = PDFLib;
 
 // ─── STATE ───────────────────────────────────────────────────────────────────
-let rawBuffer = null;
-let pdfJsDoc  = null;
-let pdfLibDoc = null;
-let numPages  = 0;
-let pageInfo  = {};   // { n: { scale, origW, origH, rendW, rendH } }
-let pageInners = {};  // { n: pageInnerDiv }
-let fields    = [];
-let hasSig    = false;
-let placing   = false;
-let sigDataUrlSaved = null; // last drawn signature — reused across fields
+let rawBuffer      = null;
+let pdfJsDoc       = null;
+let pdfLibDoc      = null;
+let numPages       = 0;
+let pageInfo       = {};   // { n: { scale, origW, origH, rendW, rendH } }
+let pageInners     = {};   // { n: innerDiv }
+let fields         = [];   // signature fields
+let editFields     = [];   // text/date/edit fields
+let allTextItems   = [];   // [{page, str, x, y, w, h}] for search
+let hasSig         = false;
+let placing        = false;   // signature placement mode
+let placingEdit    = false;   // edit field placement mode
+let placingType    = 'signature'; // 'signature' | 'text' | 'date'
+let sigDataUrlSaved = null;
+let activeEditIdx  = null; // which edit field is being edited in popover
 
 // ─── MODAL SYSTEM ────────────────────────────────────────────────────────────
 function openModal(name) {
   const el = document.getElementById('modal' + cap(name));
-  if (el) { el.classList.add('open'); }
+  if (el) el.classList.add('open');
 }
 function closeModal(name) {
   const el = document.getElementById('modal' + cap(name));
-  if (el) { el.classList.remove('open'); }
+  if (el) el.classList.remove('open');
 }
 function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
 
-// Close buttons
-document.querySelectorAll('[data-close]').forEach(btn => {
-  btn.addEventListener('click', () => closeModal(btn.dataset.close));
-});
-// Click backdrop closes
-document.querySelectorAll('.modal-overlay').forEach(ov => {
+document.querySelectorAll('[data-close]').forEach(btn =>
+  btn.addEventListener('click', () => closeModal(btn.dataset.close))
+);
+document.querySelectorAll('.modal-overlay').forEach(ov =>
   ov.addEventListener('click', e => {
     if (e.target === ov) {
-      const modal = ov.querySelector('[data-modal]');
-      if (modal) closeModal(modal.dataset.modal);
+      const m = ov.querySelector('[data-modal]');
+      if (m) closeModal(m.dataset.modal);
     }
+  })
+);
+
+// ─── ISLAND BUTTONS ──────────────────────────────────────────────────────────
+document.getElementById('islUpload').addEventListener('click',   () => openModal('upload'));
+document.getElementById('islSign').addEventListener('click',     () => openModal('signature'));
+document.getElementById('islEdit').addEventListener('click',     () => { renderEditFieldList(); openModal('edit'); });
+document.getElementById('islFields').addEventListener('click',   () => { renderFieldList(); openModal('fields'); });
+document.getElementById('islPlace').addEventListener('click',    () => openModal('place'));
+document.getElementById('islDownload').addEventListener('click', handleDownload);
+
+// ─── PLACE TYPE SELECTOR ─────────────────────────────────────────────────────
+document.querySelectorAll('.place-type-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.place-type-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    placingType = btn.dataset.ptype;
   });
 });
-
-// ─── DOCK BUTTONS ────────────────────────────────────────────────────────────
-document.getElementById('dockUpload').addEventListener('click',   () => openModal('document'));
-document.getElementById('dockSign').addEventListener('click',     () => openModal('signature'));
-document.getElementById('dockFields').addEventListener('click',   () => { renderFieldList(); openModal('fields'); });
-document.getElementById('dockPlace').addEventListener('click',    () => openModal('place'));
-document.getElementById('dockDownload').addEventListener('click', handleDownload);
-
-// ─── DOCK HORIZONTAL DRAG ─────────────────────────────────────────────────────
-(function initDockDrag() {
-  const dock = document.getElementById('dock');
-  const handle = document.getElementById('dockHandle');
-  let dragging = false, startX = 0, startTX = 0;
-
-  function startDrag(e) {
-    dragging = true;
-    const src = e.touches ? e.touches[0] : e;
-    startX = src.clientX;
-    const cur = dock.style.transform || 'translateX(0px)';
-    const match = cur.match(/translateX\((-?[\d.]+)px\)/);
-    startTX = match ? parseFloat(match[1]) : 0;
-    document.addEventListener('mousemove', moveDrag);
-    document.addEventListener('mouseup', endDrag);
-    document.addEventListener('touchmove', moveDrag, { passive: false });
-    document.addEventListener('touchend', endDrag);
-  }
-
-  function moveDrag(e) {
-    if (!dragging) return;
-    if (e.cancelable) e.preventDefault();
-    const src = e.touches ? e.touches[0] : e;
-    const dx = src.clientX - startX;
-    const maxX = (window.innerWidth - dock.offsetWidth) / 2;
-    const clamped = Math.max(-maxX, Math.min(maxX, startTX + dx));
-    dock.style.transform = `translateX(${clamped}px)`;
-  }
-
-  function endDrag() {
-    dragging = false;
-    document.removeEventListener('mousemove', moveDrag);
-    document.removeEventListener('mouseup', endDrag);
-    document.removeEventListener('touchmove', moveDrag);
-    document.removeEventListener('touchend', endDrag);
-  }
-
-  handle.addEventListener('mousedown', startDrag);
-  handle.addEventListener('touchstart', startDrag, { passive: false });
-})();
 
 // ─── SIGNATURE PAD ───────────────────────────────────────────────────────────
 const sigCanvas = document.getElementById('sigCanvas');
@@ -97,8 +69,7 @@ let drawing = false, lx = 0, ly = 0;
 function initPad() {
   const par = sigCanvas.parentElement;
   const dpr = window.devicePixelRatio || 1;
-  const w = par.clientWidth;
-  const h = 160;
+  const w = par.clientWidth, h = 160;
   sigCanvas.width  = Math.floor(w * dpr);
   sigCanvas.height = Math.floor(h * dpr);
   sigCanvas.style.width  = w + 'px';
@@ -110,27 +81,39 @@ function initPad() {
   sigCtx.lineCap = sigCtx.lineJoin = 'round';
 }
 
-// Re-init pad whenever signature modal opens (so width is correct)
+// Guard: only resize the canvas if needed and user hasn't drawn yet.
+// Assigning to canvas.width/height wipes pixel content.
+let _padInitDone = false;
 document.getElementById('modalSignature').addEventListener('transitionend', () => {
-  if (document.getElementById('modalSignature').classList.contains('open')) initPad();
+  if (!document.getElementById('modalSignature').classList.contains('open')) return;
+  const par = sigCanvas.parentElement;
+  const dpr = window.devicePixelRatio || 1;
+  const newW = Math.floor(par.clientWidth * dpr);
+  if (!_padInitDone || (!hasSig && sigCanvas.width !== newW)) {
+    initPad();
+    _padInitDone = true;
+  } else if (hasSig && sigCanvas.width !== newW) {
+    // Preserve drawn content across resize
+    const snapshot = sigCanvas.toDataURL('image/png');
+    initPad();
+    const img = new Image();
+    img.onload = () => sigCtx.drawImage(img, 0, 0, par.clientWidth, 160);
+    img.src = snapshot;
+  }
 });
 
 function padXY(e) {
   const r = sigCanvas.getBoundingClientRect();
-  const src = e.touches ? e.touches[0] : e;
-  return [src.clientX - r.left, src.clientY - r.top];
+  const s = e.touches ? e.touches[0] : e;
+  return [s.clientX - r.left, s.clientY - r.top];
 }
-function padStart(e) {
-  drawing = true;
-  [lx, ly] = padXY(e);
-  sigCtx.beginPath(); sigCtx.moveTo(lx, ly);
-}
+function padStart(e) { drawing = true; [lx,ly] = padXY(e); sigCtx.beginPath(); sigCtx.moveTo(lx,ly); }
 function padMove(e) {
   if (!drawing) return;
   if (e.cancelable) e.preventDefault();
-  const [x, y] = padXY(e);
-  sigCtx.lineTo(x, y); sigCtx.stroke();
-  lx = x; ly = y; hasSig = true;
+  const [x,y] = padXY(e);
+  sigCtx.lineTo(x,y); sigCtx.stroke();
+  lx=x; ly=y; hasSig=true;
 }
 function padEnd() { drawing = false; }
 
@@ -138,116 +121,92 @@ sigCanvas.addEventListener('mousedown',  padStart);
 sigCanvas.addEventListener('mousemove',  padMove);
 sigCanvas.addEventListener('mouseup',    padEnd);
 sigCanvas.addEventListener('mouseleave', padEnd);
-sigCanvas.addEventListener('touchstart', padStart, { passive: false });
-sigCanvas.addEventListener('touchmove',  padMove,  { passive: false });
+sigCanvas.addEventListener('touchstart', padStart, { passive:false });
+sigCanvas.addEventListener('touchmove',  padMove,  { passive:false });
 sigCanvas.addEventListener('touchend',   padEnd);
 
 document.getElementById('btnClear').addEventListener('click', () => {
   const dpr = window.devicePixelRatio || 1;
-  sigCtx.clearRect(0, 0, sigCanvas.width / dpr, sigCanvas.height / dpr);
-  hasSig = false;
-  sigDataUrlSaved = null;
+  sigCtx.clearRect(0, 0, sigCanvas.width/dpr, sigCanvas.height/dpr);
+  hasSig = false; sigDataUrlSaved = null;
   updateSigBadge();
 });
 
-// "Use this signature" — saves it and closes modal
 document.getElementById('btnUseSig').addEventListener('click', () => {
   if (!hasSig) { toast('Draw your signature first!'); return; }
+  // Capture BEFORE closing modal (closing triggers transitionend which could reinit)
   sigDataUrlSaved = sigCanvas.toDataURL('image/png');
   updateSigBadge();
-  closeModal('signature');
-  toast('Signature saved — tap any field on the document to sign it.');
+  // Brief delay so the dataUrl is committed before any transition fires
+  requestAnimationFrame(() => {
+    closeModal('signature');
+    toast('Signature saved tap any field on the document to apply it.');
+  });
 });
 
 function updateSigBadge() {
-  const badge = document.getElementById('dockSigBadge');
-  if (sigDataUrlSaved) {
-    badge.style.display = '';
-    badge.classList.add('green');
-    badge.textContent = '✓';
-  } else {
-    badge.style.display = 'none';
-  }
+  const b = document.getElementById('islSigBadge');
+  if (sigDataUrlSaved) { b.style.display=''; b.classList.add('green'); b.textContent='✓'; }
+  else b.style.display='none';
 }
 
 // ─── FILE UPLOAD ─────────────────────────────────────────────────────────────
-// Main drop overlay (full-screen when no PDF loaded)
 const dropOverlay = document.getElementById('dropOverlay');
-const fileInputMain = document.getElementById('fileInput');
 dropOverlay.addEventListener('dragover',  e => { e.preventDefault(); dropOverlay.classList.add('over'); });
 dropOverlay.addEventListener('dragleave', ()=> dropOverlay.classList.remove('over'));
-dropOverlay.addEventListener('drop', e => {
-  e.preventDefault(); dropOverlay.classList.remove('over');
-  tryLoad(e.dataTransfer.files[0]);
-});
-fileInputMain.addEventListener('change', e => tryLoad(e.target.files[0]));
+dropOverlay.addEventListener('drop', e => { e.preventDefault(); dropOverlay.classList.remove('over'); tryLoad(e.dataTransfer.files[0]); });
+document.getElementById('fileInput').addEventListener('change', e => tryLoad(e.target.files[0]));
 
-// Modal dropzone
 const dropzoneModal = document.getElementById('dropzone');
-const fileInput2    = document.getElementById('fileInput2');
 dropzoneModal.addEventListener('dragover',  e => { e.preventDefault(); dropzoneModal.classList.add('over'); });
 dropzoneModal.addEventListener('dragleave', ()=> dropzoneModal.classList.remove('over'));
-dropzoneModal.addEventListener('drop', e => {
-  e.preventDefault(); dropzoneModal.classList.remove('over');
-  tryLoad(e.dataTransfer.files[0]);
-});
-fileInput2.addEventListener('change', e => tryLoad(e.target.files[0]));
-
-document.getElementById('fcChg').addEventListener('click', () => { fileInput2.value = ''; fileInput2.click(); });
+dropzoneModal.addEventListener('drop', e => { e.preventDefault(); dropzoneModal.classList.remove('over'); tryLoad(e.dataTransfer.files[0]); });
+document.getElementById('fileInput2').addEventListener('change', e => tryLoad(e.target.files[0]));
+document.getElementById('fcChg').addEventListener('click', () => { document.getElementById('fileInput2').value=''; document.getElementById('fileInput2').click(); });
 
 function tryLoad(file) {
   if (!file) return;
-  if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
-    toast('Please upload a PDF file only.'); return;
-  }
-  closeModal('document');
+  if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) { toast('Please upload a PDF file only.'); return; }
+  closeModal('upload');
   loadFile(file);
 }
 
 async function loadFile(file) {
-  setStatus('scanning', 'Loading…');
-  prog(10);
+  setStatus('scanning','Loading…'); prog(10);
   const reader = new FileReader();
   reader.onerror = () => toast('Failed to read the file.');
   reader.onload = async ev => {
     try {
       rawBuffer = ev.target.result.slice(0);
       prog(30);
-
       pdfJsDoc  = await pdfjsLib.getDocument({ data: new Uint8Array(rawBuffer.slice(0)) }).promise;
       numPages  = pdfJsDoc.numPages;
       prog(55);
-
       pdfLibDoc = await PDFDocument.load(new Uint8Array(rawBuffer.slice(0)));
       prog(70);
 
-      // Update file card
       document.getElementById('fcName').textContent = file.name;
-      document.getElementById('fcMeta').textContent =
-        `${numPages} page${numPages>1?'s':''} · ${(file.size/1024).toFixed(0)} KB`;
+      document.getElementById('fcMeta').textContent = `${numPages} page${numPages>1?'s':''} · ${(file.size/1024).toFixed(0)} KB`;
       document.getElementById('fileCard').classList.add('show');
       document.getElementById('dropzone').style.display = 'none';
 
-      // Update dock badge
-      const fb = document.getElementById('dockFileBadge');
-      fb.style.display = ''; fb.textContent = '✓'; fb.classList.add('green');
+      const fb = document.getElementById('islFileBadge');
+      fb.style.display=''; fb.textContent='✓'; fb.classList.add('green');
 
-      // Hide full-screen drop overlay
       dropOverlay.style.display = 'none';
       document.getElementById('pagesContainer').style.display = 'flex';
 
-      fields = [];
+      fields=[]; editFields=[]; allTextItems=[];
       await renderPages();
       prog(85);
       await scanFields();
       prog(100);
       setTimeout(hideProg, 700);
 
-    } catch (err) {
+    } catch(err) {
       console.error('PDF load error:', err);
       toast('Could not parse PDF. Make sure it is a valid, non-password-protected PDF.');
-      setStatus('', 'No document');
-      hideProg();
+      setStatus('','No document'); hideProg();
     }
   };
   reader.readAsArrayBuffer(file);
@@ -257,77 +216,82 @@ async function loadFile(file) {
 async function renderPages() {
   const container = document.getElementById('pagesContainer');
   container.innerHTML = '';
-  pageInners = {};
-  pageInfo   = {};
+  pageInners={}; pageInfo={};
 
   const viewer = document.getElementById('viewer');
-  const availW = viewer.clientWidth - 32; // 1rem padding each side
+  const availW = viewer.clientWidth - 32;
 
-  for (let p = 1; p <= numPages; p++) {
+  for (let p=1; p<=numPages; p++) {
     const page = await pdfJsDoc.getPage(p);
-    const vp1  = page.getViewport({ scale: 1 });
+    const vp1  = page.getViewport({ scale:1 });
     const scale = Math.min(availW / vp1.width, 1.8);
     const vp   = page.getViewport({ scale });
 
-    pageInfo[p] = {
-      scale,
-      origW: vp1.width, origH: vp1.height,
-      rendW: vp.width,  rendH: vp.height
-    };
+    pageInfo[p] = { scale, origW:vp1.width, origH:vp1.height, rendW:vp.width, rendH:vp.height };
 
-    const wrap  = document.createElement('div');
+    const wrap = document.createElement('div');
     wrap.className = 'page-wrap';
-    wrap.style.width = vp.width + 'px';
+    wrap.style.width = vp.width+'px';
 
     const inner = document.createElement('div');
     inner.className = 'page-inner';
     inner.style.cssText = `position:relative;width:${vp.width}px;height:${vp.height}px;`;
-    inner.dataset.page  = p;
+    inner.dataset.page = p;
 
     const canvas = document.createElement('canvas');
-    canvas.width  = vp.width;
-    canvas.height = vp.height;
+    canvas.width = vp.width; canvas.height = vp.height;
     await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
 
     inner.appendChild(canvas);
     wrap.appendChild(inner);
 
     const lbl = document.createElement('div');
-    lbl.className   = 'page-lbl';
+    lbl.className = 'page-lbl';
     lbl.textContent = `Page ${p} of ${numPages}`;
     wrap.appendChild(lbl);
 
     container.appendChild(wrap);
     pageInners[p] = inner;
 
-    // Click for manual placement
+    // Click: signature or edit placement
     inner.addEventListener('click', e => {
-      if (!placing) return;
+      if (!placing && !placingEdit) return;
       const r  = inner.getBoundingClientRect();
       const rx = e.clientX - r.left;
       const ry = e.clientY - r.top;
       const { scale, origH } = pageInfo[p];
-      addField({
-        name: 'Signature', page: p,
-        x: rx / scale - 90,
-        y: origH - (ry / scale) - 22,
-        width: 180, height: 44,
-        isManual: true, signed: false
-      });
-      exitPlace();
+
+      if (placing) {
+        addField({
+          name:'Signature', page:p,
+          x: rx/scale - 90, y: origH - (ry/scale) - 22,
+          width:180, height:44,
+          isManual:true, signed:false
+        });
+        exitPlace();
+      } else if (placingEdit) {
+        const isDate = placingType === 'date';
+        addEditField({
+          name: isDate ? 'Date' : 'Text Field', page:p,
+          x: rx/scale - 70, y: origH - (ry/scale) - 16,
+          width:140, height:28,
+          fieldType: placingType,
+          value:'', isManual:true
+        });
+        exitPlace();
+      }
     });
   }
-
   setStatus('active', `${numPages} page${numPages>1?'s':''} loaded`);
 }
 
 // ─── SCAN FIELDS ─────────────────────────────────────────────────────────────
 async function scanFields() {
   const badge = document.getElementById('scanBadge');
-  badge.className = 'scan-badge scanning show';
-  badge.innerHTML = '<b>🔍 Scanning…</b>Looking for signature fields.';
+  badge.className='scan-badge scanning show';
+  badge.innerHTML='<b>🔍 Scanning…</b>Detecting signature and edit fields.';
 
-  let found = 0;
+  let foundSig=0, foundEdit=0;
 
   // Pass A: AcroForm
   try {
@@ -337,447 +301,620 @@ async function scanFields() {
     for (const fld of flds) {
       const name = fld.getName() || '';
       const type = fld.constructor.name;
-      if (!(type === 'PDFSignature' || /sign|sig|initia|author/i.test(name))) continue;
+      const isSig  = type==='PDFSignature' || /sign|sig|initia|author/i.test(name);
+      const isText = type==='PDFTextField';
+      if (!isSig && !isText) continue;
       for (const w of fld.acroField.getWidgets()) {
         const rect = w.getRectangle();
         const pref = w.P();
-        let pg = 1;
-        if (pref) for (let i = 0; i < pages.length; i++) if (pages[i].ref === pref) { pg = i+1; break; }
-        addField({
-          name, page: pg,
-          x: rect.x, y: rect.y,
-          width: Math.max(rect.width, 120), height: Math.max(rect.height, 30),
-          isAcroForm: true, signed: false
-        });
-        found++;
+        let pg=1;
+        if (pref) for (let i=0;i<pages.length;i++) if (pages[i].ref===pref){pg=i+1;break;}
+        if (isSig) {
+          addField({ name, page:pg, x:rect.x, y:rect.y, width:Math.max(rect.width,120), height:Math.max(rect.height,30), isAcroForm:true, signed:false });
+          foundSig++;
+        } else {
+          // Detect if it looks like a date field
+          const isDate = /date|dob|born/i.test(name);
+          addEditField({ name, page:pg, x:rect.x, y:rect.y, width:Math.max(rect.width,100), height:Math.max(rect.height,20), fieldType:isDate?'date':'text', value:'', isAcroForm:true });
+          foundEdit++;
+        }
       }
     }
   } catch(_) {}
 
-  // Pass B: text keyword scan
-  const labelPatterns = [
-    /^sign(ed|ature)?(\s+by)?[\s:_]*$/i,
-    /^sig[\s:_]+$/i,
-    /^initial(s)?[\s:_]*$/i,
-    /^authorized\s+by[\s:_]*$/i,
-    /^witness[\s:_]*$/i,
-  ];
-  const phrasePatterns = [
-    /sign\s+here/i,
-    /applicant.{0,4}sign/i,
-    /employee.{0,4}sign/i,
-    /customer.{0,4}sign/i,
-    /signature\s+of/i,
-    /your\s+sign/i,
+  // Pass B: text scan for signature AND edit fields
+  const sigLabelPat = [ /^sign(ed|ature)?(\s+by)?[\s:_]*$/i, /^sig[\s:_]+$/i, /^initial(s)?[\s:_]*$/i, /^authorized\s+by[\s:_]*$/i, /^witness[\s:_]*$/i ];
+  const sigPhrasePat= [ /sign\s+here/i, /applicant.{0,4}sign/i, /employee.{0,4}sign/i, /customer.{0,4}sign/i, /signature\s+of/i, /your\s+sign/i ];
+  // Edit field label patterns
+  const editLabelPat= [
+    { re:/^(full\s+)?name[\s:_]*$/i,      type:'text', label:'Name' },
+    { re:/^(first|last)\s+name[\s:_]*$/i, type:'text', label:'Name' },
+    { re:/^print(ed)?\s+name[\s:_]*$/i,   type:'text', label:'Print Name' },
+    { re:/^(date[\s:_]*)$/i,              type:'date', label:'Date' },
+    { re:/^date\s+of[\s:_]*/i,            type:'date', label:'Date' },
+    { re:/^(email|e-mail)[\s:_]*$/i,      type:'text', label:'Email' },
+    { re:/^(phone|tel)[\s:_]*/i,          type:'text', label:'Phone' },
+    { re:/^(title|position)[\s:_]*$/i,    type:'text', label:'Title' },
+    { re:/^(company|organization)[\s:_]*$/i, type:'text', label:'Company' },
+    { re:/^address[\s:_]*/i,              type:'text', label:'Address' },
   ];
 
-  for (let p = 1; p <= numPages; p++) {
+  allTextItems = [];
+
+  for (let p=1; p<=numPages; p++) {
     const page    = await pdfJsDoc.getPage(p);
     const content = await page.getTextContent();
     const { origH } = pageInfo[p];
     const items   = content.items;
 
-    for (let idx = 0; idx < items.length; idx++) {
+    for (let idx=0; idx<items.length; idx++) {
       const item = items[idx];
-      const raw  = (item.str || '').trim();
+      const raw  = (item.str||'').trim();
       if (!raw) continue;
 
-      const isLabel  = labelPatterns.some(re  => re.test(raw));
-      const isPhrase = phrasePatterns.some(re => re.test(raw));
-      if (!isLabel && !isPhrase) continue;
+      // Store all text items for search
+      allTextItems.push({
+        page:p, str:raw,
+        x:item.transform[4], y:item.transform[5],
+        w:item.width||0, h:item.height||12
+      });
 
-      const tx = item.transform[4];
-      const ty = item.transform[5];
-      const tw = item.width  || 0;
-      const th = item.height || 12;
+      const tx=item.transform[4], ty=item.transform[5];
+      const tw=item.width||0,     th=item.height||12;
 
-      if (fields.some(f => f.page===p && Math.abs(f.x-tx)<100 && Math.abs(f.y-ty)<50)) continue;
-
-      let sigX, sigW;
-      if (isLabel) {
-        sigX = tx + tw + 4;
-        let lineW = 180;
-        for (let j = idx+1; j < Math.min(idx+5, items.length); j++) {
-          const next  = items[j];
-          const nextY = next.transform[5];
-          if (Math.abs(nextY - ty) > 4) break;
-          const nextStr = (next.str || '').trim();
-          if (/^[_\-\s]+$/.test(nextStr) || nextStr === '') {
-            lineW = Math.max(next.width || 120, 120); break;
-          }
-          if (nextStr.length > 2) break;
+      // ── Signature patterns ──
+      const isLabel  = sigLabelPat.some(re => re.test(raw));
+      const isPhrase = sigPhrasePat.some(re=> re.test(raw));
+      if (isLabel || isPhrase) {
+        if (!fields.some(f=>f.page===p&&Math.abs(f.x-tx)<100&&Math.abs(f.y-ty)<50)) {
+          let sigX, sigW;
+          if (isLabel) {
+            sigX = tx+tw+4;
+            let lineW=180;
+            for (let j=idx+1;j<Math.min(idx+5,items.length);j++) {
+              const nxt=items[j], ny=nxt.transform[5];
+              if (Math.abs(ny-ty)>4) break;
+              const ns=(nxt.str||'').trim();
+              if (/^[_\-\s]+$/.test(ns)||ns===''){lineW=Math.max(nxt.width||120,120);break;}
+              if (ns.length>2) break;
+            }
+            sigW=Math.max(lineW,140);
+          } else { sigX=tx; sigW=Math.max(tw*1.5,180); }
+          addField({ name:raw, page:p, x:sigX, y:ty-4, width:sigW, height:Math.max(th+10,36), isTextDetected:true, signed:false });
+          foundSig++;
         }
-        sigW = Math.max(lineW, 140);
-      } else {
-        sigX = tx;
-        sigW = Math.max(tw * 1.5, 180);
+        continue;
       }
 
-      const sigY = ty - 4;
-      const sigH = Math.max(th + 10, 36);
-
-      addField({
-        name: raw, page: p,
-        x: sigX, y: sigY,
-        width: sigW, height: sigH,
-        isTextDetected: true, signed: false
-      });
-      found++;
+      // ── Edit field patterns ──
+      const editMatch = editLabelPat.find(ep=>ep.re.test(raw));
+      if (editMatch) {
+        if (!editFields.some(f=>f.page===p&&Math.abs(f.x-tx)<120&&Math.abs(f.y-ty)<50)) {
+          // Place edit field after the label, on the underline
+          let editX = tx+tw+4, editW=140;
+          for (let j=idx+1;j<Math.min(idx+5,items.length);j++) {
+            const nxt=items[j], ny=nxt.transform[5];
+            if (Math.abs(ny-ty)>4) break;
+            const ns=(nxt.str||'').trim();
+            if (/^[_\-\s]+$/.test(ns)||ns===''){editW=Math.max(nxt.width||120,120);break;}
+            if (ns.length>2) break;
+          }
+          addEditField({ name:editMatch.label, page:p, x:editX, y:ty-4, width:Math.max(editW,120), height:Math.max(th+8,28), fieldType:editMatch.type, value:'', isTextDetected:true });
+          foundEdit++;
+        }
+      }
     }
   }
 
-  // Update scan badge (in the document modal)
-  if (found > 0) {
-    badge.className = 'scan-badge ok show';
-    badge.innerHTML = `<b>✓ ${found} field${found>1?'s':''} detected</b>Click any field overlay to sign it.`;
+  // Badge
+  const total = foundSig + foundEdit;
+  if (total>0) {
+    badge.className='scan-badge ok show';
+    badge.innerHTML=`<b>✓ ${total} field${total>1?'s':''} detected</b>${foundSig} signature · ${foundEdit} edit field${foundEdit!==1?'s':''}.`;
   } else {
-    badge.className = 'scan-badge warn show';
-    badge.innerHTML = '<b>⚠ No fields detected</b>Use "Place" in the dock to add one manually.';
+    badge.className='scan-badge warn show';
+    badge.innerHTML='<b>⚠ No fields detected</b>Use "Place" in the toolbar to add fields manually.';
   }
-
   updateFieldsBadge();
+  updateEditBadge();
 }
 
-// ─── FIELD MANAGEMENT ────────────────────────────────────────────────────────
-function addField(f) {
-  fields.push(f);
-  renderFieldList();
-  renderOverlays();
-  updateFieldsBadge();
-}
+// ─── SIGNATURE FIELD MANAGEMENT ──────────────────────────────────────────────
+function addField(f) { fields.push(f); renderFieldList(); renderOverlays(); updateFieldsBadge(); }
 
 function updateFieldsBadge() {
-  const badge = document.getElementById('dockFieldsBadge');
-  const total  = fields.length;
-  const signed = fields.filter(f => f.signed).length;
-  if (total === 0) {
-    badge.textContent = '0';
-    badge.classList.remove('green');
-  } else if (signed === total) {
-    badge.textContent = '✓';
-    badge.classList.add('green');
-  } else {
-    badge.textContent = total - signed;
-    badge.classList.remove('green');
-  }
+  const b = document.getElementById('islFieldsBadge');
+  const total=fields.length, signed=fields.filter(f=>f.signed).length;
+  if (!total) { b.textContent='0'; b.classList.remove('green'); }
+  else if (signed===total) { b.textContent='✓'; b.classList.add('green'); }
+  else { b.textContent=total-signed; b.classList.remove('green'); }
 }
 
 function renderFieldList() {
   const list = document.getElementById('fieldList');
-  if (!fields.length) {
-    list.innerHTML = '<div class="field-empty">No fields yet.<br>Upload a PDF or place one manually.</div>';
-    checkDone(); return;
-  }
-  list.innerHTML = '';
-  fields.forEach((f, i) => {
+  if (!fields.length) { list.innerHTML='<div class="field-empty">No signature fields yet.</div>'; checkDone(); return; }
+  list.innerHTML='';
+  fields.forEach((f,i) => {
     const el = document.createElement('div');
-    el.className = 'fi' + (f.signed ? ' signed' : '');
-    el.innerHTML = `
-      <div class="fi-dot"></div>
-      <span class="fi-name" title="${f.name}">${f.name}</span>
-      <span class="fi-pg">Pg ${f.page}</span>
-      <span class="fi-tag">${f.signed ? '✓ Signed' : f.isAcroForm ? 'Form' : f.isTextDetected ? 'Auto' : 'Manual'}</span>
-    `;
-    if (!f.signed) {
-      el.addEventListener('click', () => {
-        closeModal('fields');
-        // Scroll to that field's page
-        const inner = pageInners[f.page];
-        if (inner) inner.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        // Apply if signature ready
-        setTimeout(() => applyField(i), 300);
-      });
-    }
+    el.className='fi'+(f.signed?' signed':'');
+    el.innerHTML=`<div class="fi-dot"></div><span class="fi-name" title="${f.name}">${f.name}</span><span class="fi-pg">Pg ${f.page}</span><span class="fi-tag">${f.signed?'✓ Signed':f.isAcroForm?'Form':f.isTextDetected?'Auto':'Manual'}</span>`;
+    if (!f.signed) el.addEventListener('click', ()=>{ closeModal('fields'); const inner=pageInners[f.page]; if(inner) inner.scrollIntoView({behavior:'smooth',block:'center'}); setTimeout(()=>applyField(i),300); });
     list.appendChild(el);
   });
   checkDone();
 }
 
 function renderOverlays() {
-  document.querySelectorAll('.sig-ol').forEach(el => el.remove());
-  fields.forEach((f, i) => {
+  document.querySelectorAll('.sig-ol').forEach(el=>el.remove());
+  fields.forEach((f,i) => {
     const inner = pageInners[f.page];
     if (!inner) return;
     const { scale, rendH } = pageInfo[f.page];
-    const px = Math.max(f.x * scale, 0);
-    const py = Math.max(rendH - (f.y + f.height) * scale, 0);
-    const pw = Math.max(f.width  * scale, 80);
-    const ph = Math.max(f.height * scale, 28);
+    const px=Math.max(f.x*scale,0), py=Math.max(rendH-(f.y+f.height)*scale,0);
+    const pw=Math.max(f.width*scale,80), ph=Math.max(f.height*scale,28);
 
     const el = document.createElement('div');
-    el.className = 'sig-ol' + (f.signed ? ' signed' : '');
-    el.style.cssText = `left:${px}px;top:${py}px;width:${pw}px;height:${ph}px;`;
+    el.className='sig-ol'+(f.signed?' signed':'');
+    el.style.cssText=`left:${px}px;top:${py}px;width:${pw}px;height:${ph}px;`;
 
-    const innerWrap = document.createElement('div');
-    innerWrap.className = 'sig-ol-inner';
+    const wrap=document.createElement('div'); wrap.className='sig-ol-inner';
+    if (f.signed&&f.sigDataUrl) { const img=document.createElement('img'); img.src=f.sigDataUrl; wrap.appendChild(img); }
+    else { const lbl=document.createElement('div'); lbl.className='sig-ol-lbl'; lbl.textContent='✍ Click to sign'; wrap.appendChild(lbl); }
+    el.appendChild(wrap);
 
-    if (f.signed && f.sigDataUrl) {
-      const img = document.createElement('img');
-      img.src = f.sigDataUrl;
-      innerWrap.appendChild(img);
-    } else {
-      const lbl = document.createElement('div');
-      lbl.className   = 'sig-ol-lbl';
-      lbl.textContent = '✍ Click to sign';
-      innerWrap.appendChild(lbl);
-    }
-    el.appendChild(innerWrap);
-
-    // Drag handle
-    const handle = document.createElement('div');
-    handle.className   = 'sig-ol-handle';
-    handle.title       = 'Drag to reposition';
-    handle.textContent = '⠿';
-    el.appendChild(handle);
-
-    // Delete button
-    const del = document.createElement('button');
-    del.className   = 'sig-ol-del';
-    del.textContent = '×';
-    del.title       = 'Remove field';
-    del.addEventListener('click', e => {
-      e.stopPropagation();
-      fields.splice(i, 1);
-      renderFieldList(); renderOverlays(); updateFieldsBadge();
-    });
+    const handle=document.createElement('div'); handle.className='sig-ol-handle'; handle.title='Drag'; handle.textContent='⠿'; el.appendChild(handle);
+    const del=document.createElement('button'); del.className='sig-ol-del'; del.textContent='×'; del.title='Remove';
+    del.addEventListener('click',e=>{e.stopPropagation();fields.splice(i,1);renderFieldList();renderOverlays();updateFieldsBadge();});
     el.appendChild(del);
 
-    // Drag tip
-    const tip = document.createElement('div');
-    tip.className   = 'drag-tip';
-    tip.textContent = 'Drag to reposition';
-    el.appendChild(tip);
+    const tip=document.createElement('div'); tip.className='drag-tip'; tip.textContent='Drag to reposition'; el.appendChild(tip);
+    makeDraggable(el, i, inner, 'sig');
 
-    makeDraggable(el, i, inner);
-
-    // Click to sign
-    if (!f.signed) {
-      el.addEventListener('click', e => {
-        if (el.dataset.dragged === '1') { el.dataset.dragged = '0'; return; }
-        applyField(i);
-      });
-    }
-
+    if (!f.signed) el.addEventListener('click',e=>{ if(el.dataset.dragged==='1'){el.dataset.dragged='0';return;} applyField(i); });
     inner.appendChild(el);
   });
 }
 
-function makeDraggable(el, fieldIndex, pageInner) {
-  let startX, startY, startLeft, startTop, dragging = false;
+// ─── EDIT FIELD MANAGEMENT ───────────────────────────────────────────────────
+function addEditField(f) { editFields.push(f); renderEditFieldList(); renderEditOverlays(); updateEditBadge(); }
+
+function updateEditBadge() {
+  const b=document.getElementById('islEditBadge');
+  const total=editFields.length, filled=editFields.filter(f=>f.value).length;
+  if (!total) { b.textContent='0'; b.classList.remove('blue','green'); }
+  else if (filled===total) { b.textContent='✓'; b.classList.add('green'); b.classList.remove('blue'); }
+  else { b.textContent=total-filled; b.classList.add('blue'); b.classList.remove('green'); }
+}
+
+function renderEditFieldList() {
+  const list=document.getElementById('editFieldList');
+  if (!editFields.length) { list.innerHTML='<div class="field-empty">No edit fields detected yet.</div>'; return; }
+  list.innerHTML='';
+  editFields.forEach((f,i) => {
+    const el=document.createElement('div');
+    el.className='fi edit-fi'+(f.value?' filled':'');
+    const typeIcon = f.fieldType==='date' ? '📅' : 'Aa';
+    el.innerHTML=`<div class="fi-dot"></div><span class="fi-name" title="${f.name}">${f.name}</span><span class="fi-pg">Pg ${f.page}</span><span class="fi-tag">${f.value?('✓ '+f.value.slice(0,12)):typeIcon+' Empty'}</span>`;
+    if (!f.value) el.addEventListener('click',()=>{ closeModal('edit'); const inner=pageInners[f.page]; if(inner) inner.scrollIntoView({behavior:'smooth',block:'center'}); setTimeout(()=>openEditPopover(i),300); });
+    list.appendChild(el);
+  });
+}
+
+function renderEditOverlays() {
+  document.querySelectorAll('.edit-ol').forEach(el=>el.remove());
+  editFields.forEach((f,i) => {
+    const inner=pageInners[f.page]; if (!inner) return;
+    const { scale, rendH }=pageInfo[f.page];
+    const px=Math.max(f.x*scale,0), py=Math.max(rendH-(f.y+f.height)*scale,0);
+    const pw=Math.max(f.width*scale,80), ph=Math.max(f.height*scale,20);
+
+    const el=document.createElement('div');
+    el.className='edit-ol'+(f.value?' filled':'');
+    el.style.cssText=`left:${px}px;top:${py}px;width:${pw}px;height:${ph}px;`;
+
+    if (f.value) {
+      const txt=document.createElement('div'); txt.className='edit-ol-text'; txt.textContent=f.value; el.appendChild(txt);
+    } else {
+      const ph2=document.createElement('div'); ph2.className='edit-ol-placeholder';
+      ph2.textContent=f.fieldType==='date'?'📅 Date':'Aa Text'; el.appendChild(ph2);
+    }
+
+    const handle=document.createElement('div'); handle.className='edit-ol-handle'; handle.textContent='⠿'; el.appendChild(handle);
+    const del=document.createElement('button'); del.className='edit-ol-del'; del.textContent='×'; del.title='Remove';
+    del.addEventListener('click',e=>{e.stopPropagation();editFields.splice(i,1);renderEditFieldList();renderEditOverlays();updateEditBadge();});
+    el.appendChild(del);
+
+    makeDraggable(el, i, inner, 'edit');
+    el.addEventListener('click',e=>{ if(el.dataset.dragged==='1'){el.dataset.dragged='0';return;} openEditPopover(i); });
+    inner.appendChild(el);
+  });
+}
+
+// ─── EDIT POPOVER ─────────────────────────────────────────────────────────────
+function openEditPopover(idx) {
+  activeEditIdx = idx;
+  const f = editFields[idx];
+  const inner = pageInners[f.page]; if (!inner) return;
+
+  const { scale, rendH } = pageInfo[f.page];
+  const px = f.x * scale;
+  const py = rendH - (f.y + f.height) * scale;
+  const innerRect = inner.getBoundingClientRect();
+
+  const popover = document.getElementById('editPopover');
+  const input   = document.getElementById('editPopoverInput');
+
+  // Position popover near field
+  const top  = innerRect.top  + py - 80;
+  const left = innerRect.left + px;
+  popover.style.top  = Math.max(60, top) + 'px';
+  popover.style.left = Math.min(left, window.innerWidth - 340) + 'px';
+  popover.style.display = 'block';
+
+  // Set appropriate input type and placeholder
+  if (f.fieldType === 'date') {
+    input.type = 'date';
+    input.placeholder = '';
+  } else {
+    input.type = 'text';
+    input.placeholder = `Enter ${f.name.toLowerCase()}…`;
+  }
+  input.value = f.value || '';
+  input.focus();
+}
+
+document.getElementById('editPopoverApply').addEventListener('click', applyEditPopover);
+document.getElementById('editPopoverInput').addEventListener('keydown', e => {
+  if (e.key==='Enter') applyEditPopover();
+  if (e.key==='Escape') cancelEditPopover();
+});
+document.getElementById('editPopoverCancel').addEventListener('click', cancelEditPopover);
+
+function applyEditPopover() {
+  if (activeEditIdx===null) return;
+  const val = document.getElementById('editPopoverInput').value.trim();
+  editFields[activeEditIdx].value = val;
+  closeEditPopover();
+  renderEditFieldList();
+  renderEditOverlays();
+  updateEditBadge();
+  toast(val ? `Saved: "${val}"` : 'Field cleared.');
+}
+function cancelEditPopover() { activeEditIdx=null; closeEditPopover(); }
+function closeEditPopover()  { document.getElementById('editPopover').style.display='none'; }
+
+// Close popover on outside click
+document.addEventListener('click', e => {
+  const pop=document.getElementById('editPopover');
+  if (pop.style.display!=='none' && !pop.contains(e.target) && !e.target.classList.contains('edit-ol')) {
+    cancelEditPopover();
+  }
+});
+
+// ─── MAKE DRAGGABLE (shared for sig & edit overlays) ─────────────────────────
+function makeDraggable(el, fieldIndex, pageInner, kind) {
+  let startX,startY,startLeft,startTop,dragging=false;
 
   function onStart(e) {
-    if (e.target.classList.contains('sig-ol-del')) return;
+    if (e.target.classList.contains('sig-ol-del')||e.target.classList.contains('edit-ol-del')) return;
     e.preventDefault(); e.stopPropagation();
-    dragging = true;
-    el.dataset.dragged = '0';
-
-    const src = e.touches ? e.touches[0] : e;
-    startX    = src.clientX;
-    startY    = src.clientY;
-    startLeft = parseFloat(el.style.left) || 0;
-    startTop  = parseFloat(el.style.top)  || 0;
-
+    dragging=true; el.dataset.dragged='0';
+    const src=e.touches?e.touches[0]:e;
+    startX=src.clientX; startY=src.clientY;
+    startLeft=parseFloat(el.style.left)||0;
+    startTop =parseFloat(el.style.top )||0;
     el.classList.add('dragging');
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup',   onEnd);
-    document.addEventListener('touchmove', onMove, { passive: false });
-    document.addEventListener('touchend',  onEnd);
+    document.addEventListener('mousemove',onMove);
+    document.addEventListener('mouseup',  onEnd);
+    document.addEventListener('touchmove',onMove,{passive:false});
+    document.addEventListener('touchend', onEnd);
   }
-
   function onMove(e) {
     if (!dragging) return;
     if (e.cancelable) e.preventDefault();
-    const src = e.touches ? e.touches[0] : e;
-    const dx = src.clientX - startX;
-    const dy = src.clientY - startY;
-    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) el.dataset.dragged = '1';
-
-    const pageW = pageInner.offsetWidth;
-    const pageH = pageInner.offsetHeight;
-    const elW   = el.offsetWidth;
-    const elH   = el.offsetHeight;
-
-    const newLeft = Math.max(0, Math.min(startLeft + dx, pageW - elW));
-    const newTop  = Math.max(0, Math.min(startTop  + dy, pageH - elH));
-
-    el.style.left = newLeft + 'px';
-    el.style.top  = newTop  + 'px';
+    const src=e.touches?e.touches[0]:e;
+    const dx=src.clientX-startX, dy=src.clientY-startY;
+    if (Math.abs(dx)>3||Math.abs(dy)>3) el.dataset.dragged='1';
+    const pW=pageInner.offsetWidth, pH=pageInner.offsetHeight;
+    const eW=el.offsetWidth, eH=el.offsetHeight;
+    el.style.left=Math.max(0,Math.min(startLeft+dx,pW-eW))+'px';
+    el.style.top =Math.max(0,Math.min(startTop +dy,pH-eH))+'px';
   }
-
   function onEnd() {
     if (!dragging) return;
-    dragging = false;
-    el.classList.remove('dragging');
-    document.removeEventListener('mousemove', onMove);
-    document.removeEventListener('mouseup',   onEnd);
-    document.removeEventListener('touchmove', onMove);
-    document.removeEventListener('touchend',  onEnd);
-
-    if (el.dataset.dragged !== '1') return;
-
-    const newLeft = parseFloat(el.style.left) || 0;
-    const newTop  = parseFloat(el.style.top)  || 0;
-    const { scale, rendH } = pageInfo[fields[fieldIndex].page];
-    const elH = el.offsetHeight;
-
-    fields[fieldIndex].x = newLeft / scale;
-    fields[fieldIndex].y = (rendH - newTop - elH) / scale;
-
-    if (fields[fieldIndex].signed) renderOverlays();
+    dragging=false; el.classList.remove('dragging');
+    document.removeEventListener('mousemove',onMove);
+    document.removeEventListener('mouseup',  onEnd);
+    document.removeEventListener('touchmove',onMove);
+    document.removeEventListener('touchend', onEnd);
+    if (el.dataset.dragged!=='1') return;
+    const nL=parseFloat(el.style.left)||0, nT=parseFloat(el.style.top)||0;
+    const fArr = kind==='edit'?editFields:fields;
+    const { scale, rendH } = pageInfo[fArr[fieldIndex].page];
+    fArr[fieldIndex].x = nL/scale;
+    fArr[fieldIndex].y = (rendH-nT-el.offsetHeight)/scale;
+    if (kind==='sig'&&fArr[fieldIndex].signed) renderOverlays();
+    if (kind==='edit'&&fArr[fieldIndex].value) renderEditOverlays();
     toast('Position saved.');
   }
-
-  el.addEventListener('mousedown',  onStart);
-  el.addEventListener('touchstart', onStart, { passive: false });
+  el.addEventListener('mousedown', onStart);
+  el.addEventListener('touchstart',onStart,{passive:false});
 }
 
-// ─── APPLY SIGNATURE TO FIELD ─────────────────────────────────────────────────
-// Uses sigDataUrlSaved (committed via "Use this signature") OR live canvas
+// ─── APPLY SIGNATURE ─────────────────────────────────────────────────────────
 function applyField(i) {
-  // Prefer committed signature; fall back to live canvas
-  const dataUrl = sigDataUrlSaved || (hasSig ? sigCanvas.toDataURL('image/png') : null);
-
-  if (!dataUrl) {
-    toast('Draw your signature first — tap ✍ in the dock.');
-    openModal('signature');
-    return;
-  }
-
-  fields[i].signed    = true;
-  fields[i].sigDataUrl = dataUrl;
-
-  // Auto-save if not already saved (so further fields reuse it)
+  // Always prefer the committed save; auto-commit from live canvas as fallback
   if (!sigDataUrlSaved && hasSig) {
-    sigDataUrlSaved = dataUrl;
+    sigDataUrlSaved = sigCanvas.toDataURL('image/png');
     updateSigBadge();
   }
-
-  renderFieldList();
-  renderOverlays();
-  updateFieldsBadge();
-
-  const inner = pageInners[fields[i].page];
-  if (inner) inner.scrollIntoView({ behavior: 'smooth', block: 'center' });
-
-  const remaining = fields.filter(f => !f.signed).length;
-  toast(remaining === 0
-    ? '🎉 All fields signed! Tap ⬇ to download.'
-    : `Signed ✓  ${remaining} field${remaining>1?'s':''} remaining.`
-  );
+  const dataUrl = sigDataUrlSaved;
+  if (!dataUrl) { toast('Draw your signature first tap ✍ in the toolbar.'); openModal('signature'); return; }
+  fields[i].signed=true; fields[i].sigDataUrl=dataUrl;
+  renderFieldList(); renderOverlays(); updateFieldsBadge();
+  const inner=pageInners[fields[i].page]; if(inner) inner.scrollIntoView({behavior:'smooth',block:'center'});
+  const rem=fields.filter(f=>!f.signed).length;
+  toast(rem===0?'🎉 All fields signed! Tap ⬇ to download.':`Signed ✓  ${rem} field${rem>1?'s':''} remaining.`);
 }
 
 function checkDone() {
-  const done = fields.length > 0 && fields.every(f => f.signed);
-  document.getElementById('dockDownload').disabled = !done;
-  document.getElementById('signedBanner').classList.toggle('show', done);
-  if (done) {
-    const db = document.getElementById('dockDownload');
-    db.querySelector('.dock-icon').textContent = '🎉';
-  }
+  const done=fields.length>0&&fields.every(f=>f.signed);
+  document.getElementById('islDownload').disabled=!done;
+  document.getElementById('signedBanner').classList.toggle('show',done);
+  if (done) document.getElementById('islDownload').querySelector('.isl-icon').textContent='🎉';
 }
 
 // ─── MANUAL PLACEMENT ────────────────────────────────────────────────────────
 document.getElementById('btnStartPlace').addEventListener('click', () => {
-  placing = true;
-  document.getElementById('viewer').classList.add('placing');
+  const type = document.querySelector('.place-type-btn.active')?.dataset.ptype || 'signature';
+  placingType = type;
+  if (type==='signature') { placing=true; placingEdit=false; }
+  else { placingEdit=true; placing=false; }
+  document.getElementById('viewer').classList.add(type==='signature'?'placing':'placing-edit');
   document.getElementById('manualTip').classList.add('show');
-  document.getElementById('btnStartPlace').style.display = 'none';
-  const hint = document.getElementById('placingHint');
+  document.getElementById('btnStartPlace').style.display='none';
+  const hint=document.getElementById('placingHint');
+  const typeLabel = type==='date'?'date field':type==='text'?'text field':'signature field';
+  document.getElementById('placingHintTxt').textContent=`📍 Click to place ${typeLabel}`;
   hint.classList.add('show');
   closeModal('place');
-  toast('Click anywhere on the document to place a field.');
+});
+
+// "Add edit field manually" button inside Edit modal
+document.getElementById('btnPlaceEdit').addEventListener('click', () => {
+  closeModal('edit');
+  // Pre-select text type and open place modal
+  document.querySelectorAll('.place-type-btn').forEach(b=>b.classList.remove('active'));
+  document.querySelector('.place-type-btn[data-ptype="text"]').classList.add('active');
+  openModal('place');
 });
 
 document.getElementById('btnCancelPlace').addEventListener('click', exitPlace);
 document.getElementById('cancelPlaceTxt').addEventListener('click', exitPlace);
 
 function exitPlace() {
-  placing = false;
-  document.getElementById('viewer').classList.remove('placing');
+  placing=false; placingEdit=false;
+  document.getElementById('viewer').classList.remove('placing','placing-edit');
   document.getElementById('manualTip').classList.remove('show');
-  document.getElementById('btnStartPlace').style.display = '';
+  document.getElementById('btnStartPlace').style.display='';
   document.getElementById('placingHint').classList.remove('show');
 }
 
 // ─── DOWNLOAD ────────────────────────────────────────────────────────────────
 async function handleDownload() {
-  const btn = document.getElementById('dockDownload');
-  btn.disabled = true;
-  btn.querySelector('.dock-label').textContent = 'Building…';
-
+  const btn=document.getElementById('islDownload');
+  btn.disabled=true; btn.querySelector('.isl-label').textContent='Building…';
   try {
-    const outDoc = await PDFDocument.load(new Uint8Array(rawBuffer.slice(0)));
-    try { outDoc.getForm().flatten(); } catch(_) {}
+    const outDoc=await PDFDocument.load(new Uint8Array(rawBuffer.slice(0)));
+    try { outDoc.getForm().flatten(); } catch(_){}
+    const pages=outDoc.getPages();
 
-    const pages = outDoc.getPages();
+    // Embed a standard font for text overlays
+    const font = await outDoc.embedFont(StandardFonts.Helvetica);
 
+    // Write signature fields
     for (const f of fields) {
-      if (!f.signed || !f.sigDataUrl) continue;
-      const page = pages[f.page - 1];
-      if (!page) continue;
+      if (!f.signed||!f.sigDataUrl) continue;
+      const page=pages[f.page-1]; if(!page) continue;
+      const b64=f.sigDataUrl.split(',')[1], bin=atob(b64);
+      const arr=new Uint8Array(bin.length);
+      for (let j=0;j<bin.length;j++) arr[j]=bin.charCodeAt(j);
+      const img=await outDoc.embedPng(arr);
+      page.drawImage(img,{x:f.x,y:f.y,width:f.width,height:f.height});
+    }
 
-      const b64 = f.sigDataUrl.split(',')[1];
-      const bin = atob(b64);
-      const arr = new Uint8Array(bin.length);
-      for (let j = 0; j < bin.length; j++) arr[j] = bin.charCodeAt(j);
-
-      const img = await outDoc.embedPng(arr);
-      page.drawImage(img, { x: f.x, y: f.y, width: f.width, height: f.height });
-      page.drawLine({
-        start: { x: f.x, y: f.y },
-        end:   { x: f.x + f.width, y: f.y },
-        thickness: 0.5,
-        color: rgb(.75, .75, .75)
+    // Write edit (text/date) fields
+    for (const f of editFields) {
+      if (!f.value) continue;
+      const page=pages[f.page-1]; if(!page) continue;
+      const fontSize = Math.min(f.height*0.62, 13);
+      const displayVal = f.fieldType==='date' ? formatDateDisplay(f.value) : f.value;
+      page.drawText(displayVal, {
+        x: f.x+3, y: f.y+4,
+        size: fontSize, font,
+        color: rgb(0.1,0.1,0.1),
+        maxWidth: f.width-6
       });
     }
 
-    const bytes = await outDoc.save();
-    const blob  = new Blob([bytes], { type: 'application/pdf' });
-    const url   = URL.createObjectURL(blob);
-    const a = Object.assign(document.createElement('a'), { href: url, download: 'signed_document.pdf' });
+    const bytes=await outDoc.save();
+    const blob=new Blob([bytes],{type:'application/pdf'});
+    const url=URL.createObjectURL(blob);
+    const a=Object.assign(document.createElement('a'),{href:url,download:'signed_document.pdf'});
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 8000);
+    setTimeout(()=>URL.revokeObjectURL(url),8000);
     toast('✅ Signed PDF downloaded!');
-
   } catch(err) {
-    console.error('Download error:', err);
+    console.error('Download error:',err);
     toast('Error generating PDF. See console for details.');
   }
+  btn.disabled=false;
+  btn.querySelector('.isl-label').textContent='Download';
+}
 
-  btn.disabled = false;
-  btn.querySelector('.dock-label').textContent = 'Download';
+function formatDateDisplay(val) {
+  if (!val) return '';
+  // val may be YYYY-MM-DD from date input
+  if (/^\d{4}-\d{2}-\d{2}$/.test(val)) {
+    const [y,m,d]=val.split('-');
+    const months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return `${parseInt(d)} ${months[parseInt(m)-1]} ${y}`;
+  }
+  return val;
+}
+
+// ─── SEARCH ──────────────────────────────────────────────────────────────────
+const searchInput   = document.getElementById('searchInput');
+const searchClear   = document.getElementById('searchClear');
+const searchResults = document.getElementById('searchResults');
+
+searchInput.addEventListener('input', onSearchInput);
+searchInput.addEventListener('focus', onSearchInput);
+searchClear.addEventListener('click', () => { searchInput.value=''; searchClear.style.display='none'; searchResults.classList.remove('open'); searchInput.focus(); });
+
+document.addEventListener('click', e => {
+  if (!document.getElementById('searchWrap').contains(e.target)) searchResults.classList.remove('open');
+});
+
+function onSearchInput() {
+  const q = searchInput.value.trim().toLowerCase();
+  searchClear.style.display = q ? '' : 'none';
+  if (!q || q.length<2) { searchResults.classList.remove('open'); return; }
+  runSearch(q);
+}
+
+function runSearch(q) {
+  const results = [];
+
+  // Search signature fields
+  fields.forEach((f,i) => {
+    if (f.name.toLowerCase().includes(q)) {
+      results.push({ kind:'sig', label:f.name, sub:`Page ${f.page} · ${f.signed?'Signed':'Unsigned'}`, icon:'✍', idx:i, page:f.page });
+    }
+  });
+
+  // Search edit fields
+  editFields.forEach((f,i) => {
+    const haystack = (f.name+' '+f.value).toLowerCase();
+    if (haystack.includes(q)) {
+      results.push({ kind:'edit', label:f.name, sub:`Page ${f.page}${f.value?' · "'+f.value+'"':''}`, icon:f.fieldType==='date'?'📅':'Aa', idx:i, page:f.page });
+    }
+  });
+
+  // Search document text
+  const textHits = [];
+  allTextItems.forEach((item,i) => {
+    if (item.str.toLowerCase().includes(q)) {
+      // Highlight match
+      const lo=item.str.toLowerCase(), pos=lo.indexOf(q);
+      const before=item.str.slice(0,pos);
+      const match =item.str.slice(pos,pos+q.length);
+      const after =item.str.slice(pos+q.length);
+      textHits.push({ kind:'text', label:item.str, before, match, after, icon:'📄', page:item.page, x:item.x, y:item.y, w:item.w, h:item.h });
+    }
+  });
+  // Deduplicate text hits to 6 max
+  textHits.slice(0,6).forEach(h=>results.push(h));
+
+  renderSearchResults(results, q);
+}
+
+function renderSearchResults(results, q) {
+  searchResults.innerHTML='';
+  if (!results.length) {
+    searchResults.innerHTML='<div class="sr-empty">No results found.</div>';
+    searchResults.classList.add('open'); return;
+  }
+
+  const sigItems  = results.filter(r=>r.kind==='sig');
+  const editItems = results.filter(r=>r.kind==='edit');
+  const textItems = results.filter(r=>r.kind==='text');
+
+  function group(label, items) {
+    if (!items.length) return;
+    const gl=document.createElement('div'); gl.className='sr-group-label'; gl.textContent=label;
+    searchResults.appendChild(gl);
+    items.forEach(r => {
+      const el=document.createElement('div'); el.className='sr-item';
+      if (r.kind==='text') {
+        el.innerHTML=`<span class="sr-item-icon">${r.icon}</span>
+          <div style="flex:1;min-width:0;">
+            <span class="sr-item-name">${esc(r.before)}<span class="sr-match-hl">${esc(r.match)}</span>${esc(r.after)}</span>
+            <span class="sr-item-match">Page ${r.page}</span>
+          </div>`;
+      } else {
+        el.innerHTML=`<span class="sr-item-icon">${r.icon}</span><span class="sr-item-name">${esc(r.label)}</span><span class="sr-item-meta">${esc(r.sub)}</span>`;
+      }
+      el.addEventListener('click', () => {
+        searchResults.classList.remove('open');
+        searchInput.blur();
+        scrollToResult(r);
+      });
+      searchResults.appendChild(el);
+    });
+  }
+
+  group('Signature Fields', sigItems);
+  group('Edit Fields', editItems);
+  group('In Document', textItems);
+
+  searchResults.classList.add('open');
+}
+
+function scrollToResult(r) {
+  if (r.kind==='sig'||r.kind==='edit') {
+    const fArr = r.kind==='sig'?fields:editFields;
+    const inner = pageInners[fArr[r.idx].page];
+    if (inner) {
+      inner.scrollIntoView({behavior:'smooth',block:'center'});
+      // Flash the overlay
+      const ols = inner.querySelectorAll(r.kind==='sig'?'.sig-ol':'.edit-ol');
+      const fInfo=pageInfo[fArr[r.idx].page];
+      // Find by position proximity
+      ols.forEach(ol => {
+        ol.style.outline='2.5px solid #f59e0b';
+        setTimeout(()=>ol.style.outline='',1500);
+      });
+    }
+  } else if (r.kind==='text') {
+    // Scroll to the page containing the text
+    const inner = pageInners[r.page];
+    if (inner) {
+      // Scroll text item into view
+      const { scale, rendH } = pageInfo[r.page];
+      const py = rendH - (r.y + r.h) * scale;
+      // Create a temporary highlight element
+      const hl=document.createElement('div');
+      hl.style.cssText=`position:absolute;left:${r.x*scale}px;top:${py}px;width:${Math.max(r.w*scale,60)}px;height:${r.h*scale+4}px;background:rgba(245,158,11,.3);border-radius:3px;pointer-events:none;z-index:50;transition:opacity .5s;`;
+      inner.appendChild(hl);
+      inner.scrollIntoView({behavior:'smooth',block:'center'});
+      setTimeout(()=>{ hl.style.opacity='0'; setTimeout(()=>hl.remove(),500); },1800);
+    }
+  }
+}
+
+function esc(str) {
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
 // ─── UTILS ───────────────────────────────────────────────────────────────────
-function setStatus(cls, txt) {
-  document.getElementById('statusPill').className = 'status-pill ' + cls;
-  document.getElementById('statusTxt').textContent = txt;
+function setStatus(cls,txt) {
+  document.getElementById('statusPill').className='status-pill '+cls;
+  document.getElementById('statusTxt').textContent=txt;
 }
-function prog(pct) {
-  document.getElementById('progBar').classList.add('show');
-  document.getElementById('progFill').style.width = pct + '%';
-}
-function hideProg() {
-  document.getElementById('progBar').classList.remove('show');
-  document.getElementById('progFill').style.width = '0';
-}
+function prog(pct) { document.getElementById('progBar').classList.add('show'); document.getElementById('progFill').style.width=pct+'%'; }
+function hideProg() { document.getElementById('progBar').classList.remove('show'); document.getElementById('progFill').style.width='0'; }
 let _tt;
 function toast(msg) {
-  const el = document.getElementById('toast');
-  el.textContent = msg;
-  el.classList.add('show');
-  clearTimeout(_tt);
-  _tt = setTimeout(() => el.classList.remove('show'), 3800);
+  const el=document.getElementById('toast');
+  el.textContent=msg; el.classList.add('show');
+  clearTimeout(_tt); _tt=setTimeout(()=>el.classList.remove('show'),3800);
 }
 
-// Responsive re-render on resize
 let _rt;
 window.addEventListener('resize', () => {
   clearTimeout(_rt);
-  _rt = setTimeout(async () => {
-    if (pdfJsDoc) { await renderPages(); renderOverlays(); }
-  }, 350);
+  _rt=setTimeout(async()=>{ if(pdfJsDoc){ await renderPages(); renderOverlays(); renderEditOverlays(); } },360);
 });
 
-// Init pad on load
 initPad();

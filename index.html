@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <title>SignFlow — Digital PDF Signing</title>
+  <title>SignFlow Digital PDF Signing</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -18,15 +18,27 @@
       <div class="logo-mark">✍</div>
       <span class="logo-text">SignFlow</span>
     </div>
+
+    <!-- CENTER SEARCH BAR -->
+    <div class="search-wrap" id="searchWrap">
+      <div class="search-bar" id="searchBar">
+        <span class="search-icon">⌕</span>
+        <input type="text" id="searchInput" class="search-input" placeholder="Search fields, text…" autocomplete="off" spellcheck="false">
+        <span class="search-clear" id="searchClear" title="Clear">✕</span>
+      </div>
+      <!-- Live results dropdown -->
+      <div class="search-results" id="searchResults"></div>
+    </div>
+
     <div class="status-pill" id="statusPill">
       <div class="status-dot"></div>
       <span id="statusTxt">No document</span>
     </div>
   </header>
 
-  <!-- MAIN VIEWER (full screen) -->
+  <!-- MAIN VIEWER (full bleed) -->
   <main class="viewer" id="viewer">
-    <!-- Upload drop overlay -->
+    <!-- Upload drop overlay (full-screen when no doc loaded) -->
     <div class="drop-overlay" id="dropOverlay">
       <input type="file" id="fileInput" accept=".pdf">
       <div class="drop-content">
@@ -40,59 +52,72 @@
     <div class="pages-container" id="pagesContainer" style="display:none;"></div>
   </main>
 
-  <!-- FLOATING DOCK -->
-  <div class="dock-wrapper" id="dockWrapper">
-    <div class="dock" id="dock">
-      <!-- Drag handle -->
-      <div class="dock-handle" id="dockHandle">
-        <div class="dock-handle-bar"></div>
-      </div>
+  <!-- ── DYNAMIC ISLAND BAR (bottom, fixed, full-width) ── -->
+  <div class="island-bar" id="islandBar">
+    <div class="island-inner">
 
-      <div class="dock-items">
-        <!-- Upload -->
-        <button class="dock-btn" id="dockUpload" title="Document">
-          <span class="dock-icon">📄</span>
-          <span class="dock-label">Document</span>
-          <span class="dock-badge" id="dockFileBadge" style="display:none">✓</span>
-        </button>
+      <!-- Upload / Change doc -->
+      <button class="isl-btn" id="islUpload" title="Upload PDF">
+        <span class="isl-icon">📄</span>
+        <span class="isl-label">Upload</span>
+        <span class="isl-badge green" id="islFileBadge" style="display:none">✓</span>
+      </button>
 
-        <!-- Signature pad -->
-        <button class="dock-btn" id="dockSign" title="Signature">
-          <span class="dock-icon">✍</span>
-          <span class="dock-label">Signature</span>
-          <span class="dock-badge" id="dockSigBadge" style="display:none">✓</span>
-        </button>
+      <div class="isl-divider"></div>
 
-        <!-- Fields -->
-        <button class="dock-btn" id="dockFields" title="Fields">
-          <span class="dock-icon">📋</span>
-          <span class="dock-label">Fields</span>
-          <span class="dock-badge" id="dockFieldsBadge">0</span>
-        </button>
+      <!-- Draw Signature -->
+      <button class="isl-btn" id="islSign" title="Draw Signature">
+        <span class="isl-icon">✍</span>
+        <span class="isl-label">Signature</span>
+        <span class="isl-badge green" id="islSigBadge" style="display:none">✓</span>
+      </button>
 
-        <!-- Place field -->
-        <button class="dock-btn" id="dockPlace" title="Place Field">
-          <span class="dock-icon">📍</span>
-          <span class="dock-label">Place</span>
-        </button>
+      <div class="isl-divider"></div>
 
-        <!-- Download -->
-        <button class="dock-btn dock-btn--accent" id="dockDownload" disabled title="Download">
-          <span class="dock-icon">⬇</span>
-          <span class="dock-label">Download</span>
-        </button>
-      </div>
+      <!-- Edit fields (text / date) -->
+      <button class="isl-btn" id="islEdit" title="Edit Fields">
+        <span class="isl-icon">✏️</span>
+        <span class="isl-label">Edit</span>
+        <span class="isl-badge" id="islEditBadge">0</span>
+      </button>
+
+      <div class="isl-divider"></div>
+
+      <!-- All fields list -->
+      <button class="isl-btn" id="islFields" title="Signature Fields">
+        <span class="isl-icon">📋</span>
+        <span class="isl-label">Fields</span>
+        <span class="isl-badge" id="islFieldsBadge">0</span>
+      </button>
+
+      <div class="isl-divider"></div>
+
+      <!-- Place field manually -->
+      <button class="isl-btn" id="islPlace" title="Place Field">
+        <span class="isl-icon">📍</span>
+        <span class="isl-label">Place</span>
+      </button>
+
+      <div class="isl-divider"></div>
+
+      <!-- Download -->
+      <button class="isl-btn isl-btn--accent" id="islDownload" disabled title="Download Signed PDF">
+        <span class="isl-icon">⬇</span>
+        <span class="isl-label">Download</span>
+      </button>
+
     </div>
   </div>
 
   <!-- ===================== MODALS ===================== -->
 
-  <!-- Document Modal -->
-  <div class="modal-overlay" id="modalDocument">
-    <div class="modal" data-modal="document">
+  <!-- Upload Modal -->
+  <div class="modal-overlay" id="modalUpload">
+    <div class="modal" data-modal="upload">
+      <div class="modal-grip"></div>
       <div class="modal-header">
         <span class="modal-title">Document</span>
-        <button class="modal-close" data-close="document">✕</button>
+        <button class="modal-close" data-close="upload">✕</button>
       </div>
       <div class="modal-body">
         <div class="dropzone" id="dropzone">
@@ -113,7 +138,7 @@
           <div class="progress-fill" id="progFill"></div>
         </div>
         <div class="scan-badge" id="scanBadge"></div>
-        <div class="privacy-note">🔒 Everything stays in your browser — nothing is uploaded.</div>
+        <div class="privacy-note">🔒 Processed entirely in your browser nothing is uploaded.</div>
       </div>
     </div>
   </div>
@@ -121,6 +146,7 @@
   <!-- Signature Pad Modal -->
   <div class="modal-overlay" id="modalSignature">
     <div class="modal" data-modal="signature">
+      <div class="modal-grip"></div>
       <div class="modal-header">
         <span class="modal-title">Your Signature</span>
         <button class="modal-close" data-close="signature">✕</button>
@@ -136,15 +162,38 @@
           <button class="btn btn-sm btn-accent" id="btnUseSig">Use this signature ✓</button>
         </div>
         <div class="sig-copy-tip">
-          <span>💡 Once drawn, your signature is applied to whichever field you click — you can reuse it across all fields.</span>
+          💡 Your signature is reused across all fields draw once, apply everywhere.
         </div>
       </div>
     </div>
   </div>
 
-  <!-- Fields Modal -->
+  <!-- Edit Fields Modal -->
+  <div class="modal-overlay" id="modalEdit">
+    <div class="modal" data-modal="edit">
+      <div class="modal-grip"></div>
+      <div class="modal-header">
+        <span class="modal-title">Edit Fields</span>
+        <button class="modal-close" data-close="edit">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="edit-intro">
+          Auto-detected text and date fields. Click any field to type into it directly on the document.
+        </div>
+        <div class="field-list" id="editFieldList">
+          <div class="field-empty">Upload a PDF to detect editable fields.</div>
+        </div>
+        <div class="edit-actions">
+          <button class="btn btn-sm btn-ghost" id="btnPlaceEdit">+ Add edit field manually</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Signature Fields Modal -->
   <div class="modal-overlay" id="modalFields">
     <div class="modal" data-modal="fields">
+      <div class="modal-grip"></div>
       <div class="modal-header">
         <span class="modal-title">Signature Fields</span>
         <button class="modal-close" data-close="fields">✕</button>
@@ -158,23 +207,29 @@
     </div>
   </div>
 
-  <!-- Place Field Modal (compact confirmation) -->
+  <!-- Place Field Modal -->
   <div class="modal-overlay" id="modalPlace">
     <div class="modal modal--compact" data-modal="place">
+      <div class="modal-grip"></div>
       <div class="modal-header">
         <span class="modal-title">Place Field Manually</span>
         <button class="modal-close" data-close="place">✕</button>
       </div>
       <div class="modal-body">
+        <div class="place-type-row">
+          <button class="place-type-btn active" data-ptype="signature">✍ Signature</button>
+          <button class="place-type-btn" data-ptype="text">Aa Text</button>
+          <button class="place-type-btn" data-ptype="date">📅 Date</button>
+        </div>
         <div class="place-instructions">
           <div class="place-ic">📍</div>
-          <p>Tap or click anywhere on the document to drop a signature field at that exact spot.</p>
+          <p>Tap anywhere on the document to drop the selected field type at that exact spot.</p>
         </div>
         <button class="btn btn-accent btn-full" id="btnStartPlace">Start placing →</button>
         <div class="manual-tip" id="manualTip">
-          ✅ Placement mode active — click on the document!
+          ✅ Placement active click anywhere on the document
           <br><br>
-          <button class="btn btn-sm btn-ghost" id="btnCancelPlace">✕ Cancel placement</button>
+          <button class="btn btn-sm btn-ghost" id="btnCancelPlace">✕ Cancel</button>
         </div>
       </div>
     </div>
@@ -183,10 +238,20 @@
   <!-- Toast -->
   <div class="toast" id="toast"></div>
 
-  <!-- Placing mode crosshair hint -->
+  <!-- Placing hint bar (floats below topbar) -->
   <div class="placing-hint" id="placingHint">
-    📍 Click on document to place field &nbsp;·&nbsp;
+    <span id="placingHintTxt">📍 Click on document to place field</span>
+    &nbsp;·&nbsp;
     <span id="cancelPlaceTxt" style="cursor:pointer;text-decoration:underline;">Cancel</span>
+  </div>
+
+  <!-- Inline text edit popover (shown when user clicks an edit overlay) -->
+  <div class="edit-popover" id="editPopover" style="display:none;">
+    <input type="text" id="editPopoverInput" class="edit-popover-input" placeholder="Type here…">
+    <div class="edit-popover-actions">
+      <button class="btn btn-sm btn-ghost" id="editPopoverCancel">Cancel</button>
+      <button class="btn btn-sm btn-accent" id="editPopoverApply">Apply ✓</button>
+    </div>
   </div>
 
   <script src="script.js"></script>
