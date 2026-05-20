@@ -1,118 +1,194 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SignFlow Digital PDF Signing</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>SignFlow — Digital PDF Signing</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:wght@300;400;500;600&display=swap">
   <link rel="stylesheet" href="styles.css">
-
 </head>
-
 <body>
-  <div class="app">
 
-    <!-- TOP BAR -->
-    <header class="topbar">
-      <div style="display:flex;align-items:center;gap:6px;">
-        <button class="sb-toggle" id="sbToggle" aria-label="Toggle sidebar">☰</button>
-        <div class="logo">
-          <div class="logo-mark">✍</div>
-          SignFlow
-        </div>
+  <!-- TOP BAR -->
+  <header class="topbar">
+    <div class="logo">
+      <div class="logo-mark">✍</div>
+      <span class="logo-text">SignFlow</span>
+    </div>
+    <div class="status-pill" id="statusPill">
+      <div class="status-dot"></div>
+      <span id="statusTxt">No document</span>
+    </div>
+  </header>
+
+  <!-- MAIN VIEWER (full screen) -->
+  <main class="viewer" id="viewer">
+    <!-- Upload drop overlay -->
+    <div class="drop-overlay" id="dropOverlay">
+      <input type="file" id="fileInput" accept=".pdf">
+      <div class="drop-content">
+        <div class="drop-icon">📄</div>
+        <div class="drop-title">Drop your PDF here</div>
+        <div class="drop-sub">or click to browse · PDF only</div>
       </div>
-      <div class="status-pill" id="statusPill">
-        <div class="status-dot"></div>
-        <span id="statusTxt">No document</span>
-      </div>
-    </header>
+    </div>
 
-    <div class="main">
-      <div class="overlay-bg" id="overlayBg"></div>
+    <!-- Pages rendered here -->
+    <div class="pages-container" id="pagesContainer" style="display:none;"></div>
+  </main>
 
-      <!-- SIDEBAR -->
-      <aside class="sidebar" id="sidebar">
-        <div class="sb-body">
-
-          <!-- UPLOAD -->
-          <div class="panel">
-            <div class="ptitle">Document</div>
-            <div class="dropzone" id="dropzone">
-              <input type="file" id="fileInput" accept=".pdf">
-              <span class="dz-ic">📄</span>
-              <div class="dz-t">Upload PDF to sign</div>
-              <div class="dz-s">Click or drag &amp; drop · PDF only</div>
-            </div>
-            <div class="file-card" id="fileCard">
-              <div class="fc-ic">📄</div>
-              <div class="fc-info">
-                <div class="fc-name" id="fcName">—</div>
-                <div class="fc-meta" id="fcMeta">—</div>
-              </div>
-              <span class="fc-chg" id="fcChg">Change</span>
-            </div>
-            <div class="progress-bar" id="progBar">
-              <div class="progress-fill" id="progFill"></div>
-            </div>
-            <div class="scan-badge" id="scanBadge"></div>
-          </div>
-
-          <!-- SIGNATURE PAD -->
-          <div class="panel">
-            <div class="ptitle">Your Signature</div>
-            <div class="sigpad-wrap">
-              <canvas id="sigCanvas" height="130"></canvas>
-              <div class="sigpad-line"></div>
-              <div class="sigpad-hint">✦ Sign above the line</div>
-            </div>
-            <div class="sig-actions">
-              <button class="btn btn-sm btn-danger" id="btnClear">✕ Clear</button>
-            </div>
-          </div>
-
-          <!-- FIELDS -->
-          <div class="panel">
-            <div class="ptitle">Signature Fields</div>
-            <div class="field-list" id="fieldList">
-              <div class="field-empty">Upload a PDF to auto-detect signature fields.</div>
-            </div>
-            <div class="manual-tip" id="manualTip">
-              📍 Click anywhere on the document to place a signature field.
-              <br><br>
-              <button class="btn btn-sm btn-ghost" id="btnCancelPlace">✕ Cancel</button>
-            </div>
-            <div style="margin-top:9px;display:none;" id="addWrap">
-              <button class="btn btn-sm btn-full" id="btnAddField">+ Place field manually</button>
-            </div>
-          </div>
-
-        </div><!-- /sb-body -->
-
-        <!-- DOWNLOAD -->
-        <div class="dl-panel">
-          <div class="signed-banner" id="signedBanner">🎉 <span>All fields signed!</span></div>
-          <button class="btn btn-accent btn-full" id="btnDownload" disabled>⬇ Download Signed PDF</button>
-          <div class="privacy">🔒 Processed in your browser · Nothing leaves your device</div>
-        </div>
-      </aside>
-
-      <!-- VIEWER -->
-      <div class="viewer" id="viewer">
-        <div class="ph" id="placeholder">
-          <div class="ph-ic">📋</div>
-          <div class="ph-t">No document loaded</div>
-          <div class="ph-s">Upload a PDF to preview it and sign the detected fields.</div>
-        </div>
+  <!-- FLOATING DOCK -->
+  <div class="dock-wrapper" id="dockWrapper">
+    <div class="dock" id="dock">
+      <!-- Drag handle -->
+      <div class="dock-handle" id="dockHandle">
+        <div class="dock-handle-bar"></div>
       </div>
 
+      <div class="dock-items">
+        <!-- Upload -->
+        <button class="dock-btn" id="dockUpload" title="Document">
+          <span class="dock-icon">📄</span>
+          <span class="dock-label">Document</span>
+          <span class="dock-badge" id="dockFileBadge" style="display:none">✓</span>
+        </button>
+
+        <!-- Signature pad -->
+        <button class="dock-btn" id="dockSign" title="Signature">
+          <span class="dock-icon">✍</span>
+          <span class="dock-label">Signature</span>
+          <span class="dock-badge" id="dockSigBadge" style="display:none">✓</span>
+        </button>
+
+        <!-- Fields -->
+        <button class="dock-btn" id="dockFields" title="Fields">
+          <span class="dock-icon">📋</span>
+          <span class="dock-label">Fields</span>
+          <span class="dock-badge" id="dockFieldsBadge">0</span>
+        </button>
+
+        <!-- Place field -->
+        <button class="dock-btn" id="dockPlace" title="Place Field">
+          <span class="dock-icon">📍</span>
+          <span class="dock-label">Place</span>
+        </button>
+
+        <!-- Download -->
+        <button class="dock-btn dock-btn--accent" id="dockDownload" disabled title="Download">
+          <span class="dock-icon">⬇</span>
+          <span class="dock-label">Download</span>
+        </button>
+      </div>
     </div>
   </div>
 
+  <!-- ===================== MODALS ===================== -->
+
+  <!-- Document Modal -->
+  <div class="modal-overlay" id="modalDocument">
+    <div class="modal" data-modal="document">
+      <div class="modal-header">
+        <span class="modal-title">Document</span>
+        <button class="modal-close" data-close="document">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="dropzone" id="dropzone">
+          <input type="file" id="fileInput2" accept=".pdf">
+          <span class="dz-ic">📄</span>
+          <div class="dz-t">Upload PDF to sign</div>
+          <div class="dz-s">Click or drag &amp; drop · PDF only</div>
+        </div>
+        <div class="file-card" id="fileCard">
+          <div class="fc-ic">📄</div>
+          <div class="fc-info">
+            <div class="fc-name" id="fcName">—</div>
+            <div class="fc-meta" id="fcMeta">—</div>
+          </div>
+          <span class="fc-chg" id="fcChg">Change</span>
+        </div>
+        <div class="progress-bar" id="progBar">
+          <div class="progress-fill" id="progFill"></div>
+        </div>
+        <div class="scan-badge" id="scanBadge"></div>
+        <div class="privacy-note">🔒 Everything stays in your browser — nothing is uploaded.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Signature Pad Modal -->
+  <div class="modal-overlay" id="modalSignature">
+    <div class="modal" data-modal="signature">
+      <div class="modal-header">
+        <span class="modal-title">Your Signature</span>
+        <button class="modal-close" data-close="signature">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="sigpad-wrap">
+          <canvas id="sigCanvas" height="160"></canvas>
+          <div class="sigpad-line"></div>
+          <div class="sigpad-hint">✦ Sign above the line</div>
+        </div>
+        <div class="sig-actions">
+          <button class="btn btn-sm btn-danger" id="btnClear">✕ Clear</button>
+          <button class="btn btn-sm btn-accent" id="btnUseSig">Use this signature ✓</button>
+        </div>
+        <div class="sig-copy-tip">
+          <span>💡 Once drawn, your signature is applied to whichever field you click — you can reuse it across all fields.</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Fields Modal -->
+  <div class="modal-overlay" id="modalFields">
+    <div class="modal" data-modal="fields">
+      <div class="modal-header">
+        <span class="modal-title">Signature Fields</span>
+        <button class="modal-close" data-close="fields">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="field-list" id="fieldList">
+          <div class="field-empty">Upload a PDF to auto-detect signature fields.</div>
+        </div>
+        <div class="signed-banner" id="signedBanner">🎉 <span>All fields signed!</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Place Field Modal (compact confirmation) -->
+  <div class="modal-overlay" id="modalPlace">
+    <div class="modal modal--compact" data-modal="place">
+      <div class="modal-header">
+        <span class="modal-title">Place Field Manually</span>
+        <button class="modal-close" data-close="place">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="place-instructions">
+          <div class="place-ic">📍</div>
+          <p>Tap or click anywhere on the document to drop a signature field at that exact spot.</p>
+        </div>
+        <button class="btn btn-accent btn-full" id="btnStartPlace">Start placing →</button>
+        <div class="manual-tip" id="manualTip">
+          ✅ Placement mode active — click on the document!
+          <br><br>
+          <button class="btn btn-sm btn-ghost" id="btnCancelPlace">✕ Cancel placement</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
   <div class="toast" id="toast"></div>
+
+  <!-- Placing mode crosshair hint -->
+  <div class="placing-hint" id="placingHint">
+    📍 Click on document to place field &nbsp;·&nbsp;
+    <span id="cancelPlaceTxt" style="cursor:pointer;text-decoration:underline;">Cancel</span>
+  </div>
 
   <script src="script.js"></script>
 </body>
-
 </html>
