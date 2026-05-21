@@ -1,10 +1,10 @@
-// ─── PDF.JS WORKER ───────────────────────────────────────────────────────────
+// PDF.JS WORKER ─────────────
 pdfjsLib.GlobalWorkerOptions.workerSrc =
   'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
 const { PDFDocument, rgb, StandardFonts } = PDFLib;
 
-// ─── STATE ───────────────────────────────────────────────────────────────────
+// STATE ─────────────────────
 let rawBuffer      = null;
 let pdfJsDoc       = null;
 let pdfLibDoc      = null;
@@ -15,13 +15,13 @@ let fields         = [];   // signature fields
 let editFields     = [];   // text/date/edit fields
 let allTextItems   = [];   // [{page, str, x, y, w, h}] for search
 let hasSig         = false;
-let placing        = false;   // signature placement mode
-let placingEdit    = false;   // edit field placement mode
-let placingType    = 'signature'; // 'signature' | 'text' | 'date'
+let placing        = false;
+let placingEdit    = false;
+let placingType    = 'signature';
 let sigDataUrlSaved = null;
-let activeEditIdx  = null; // which edit field is being edited in popover
+let activeEditIdx  = null;
 
-// ─── MODAL SYSTEM ────────────────────────────────────────────────────────────
+// MODAL SYSTEM ──────────────
 function openModal(name) {
   const el = document.getElementById('modal' + cap(name));
   if (el) el.classList.add('open');
@@ -44,7 +44,7 @@ document.querySelectorAll('.modal-overlay').forEach(ov =>
   })
 );
 
-// ─── ISLAND BUTTONS ──────────────────────────────────────────────────────────
+// ISLAND BUTTONS ────────────
 document.getElementById('islUpload').addEventListener('click',   () => openModal('upload'));
 document.getElementById('islSign').addEventListener('click',     () => openModal('signature'));
 document.getElementById('islEdit').addEventListener('click',     () => { renderEditFieldList(); openModal('edit'); });
@@ -52,7 +52,7 @@ document.getElementById('islFields').addEventListener('click',   () => { renderF
 document.getElementById('islPlace').addEventListener('click',    () => openModal('place'));
 document.getElementById('islDownload').addEventListener('click', handleDownload);
 
-// ─── PLACE TYPE SELECTOR ─────────────────────────────────────────────────────
+// PLACE TYPE SELECTOR ───────
 document.querySelectorAll('.place-type-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('.place-type-btn').forEach(b => b.classList.remove('active'));
@@ -61,7 +61,7 @@ document.querySelectorAll('.place-type-btn').forEach(btn => {
   });
 });
 
-// ─── SIGNATURE PAD ───────────────────────────────────────────────────────────
+// SIGNATURE PAD ─────────────
 const sigCanvas = document.getElementById('sigCanvas');
 const sigCtx    = sigCanvas.getContext('2d');
 let drawing = false, lx = 0, ly = 0;
@@ -81,8 +81,6 @@ function initPad() {
   sigCtx.lineCap = sigCtx.lineJoin = 'round';
 }
 
-// Guard: only resize the canvas if needed and user hasn't drawn yet.
-// Assigning to canvas.width/height wipes pixel content.
 let _padInitDone = false;
 document.getElementById('modalSignature').addEventListener('transitionend', () => {
   if (!document.getElementById('modalSignature').classList.contains('open')) return;
@@ -93,7 +91,6 @@ document.getElementById('modalSignature').addEventListener('transitionend', () =
     initPad();
     _padInitDone = true;
   } else if (hasSig && sigCanvas.width !== newW) {
-    // Preserve drawn content across resize
     const snapshot = sigCanvas.toDataURL('image/png');
     initPad();
     const img = new Image();
@@ -134,13 +131,11 @@ document.getElementById('btnClear').addEventListener('click', () => {
 
 document.getElementById('btnUseSig').addEventListener('click', () => {
   if (!hasSig) { toast('Draw your signature first!'); return; }
-  // Capture BEFORE closing modal (closing triggers transitionend which could reinit)
   sigDataUrlSaved = sigCanvas.toDataURL('image/png');
   updateSigBadge();
-  // Brief delay so the dataUrl is committed before any transition fires
   requestAnimationFrame(() => {
     closeModal('signature');
-    toast('Signature saved tap any field on the document to apply it.');
+    toast('Signature saved andtap any field on the document to apply it.');
   });
 });
 
@@ -150,7 +145,7 @@ function updateSigBadge() {
   else b.style.display='none';
 }
 
-// ─── FILE UPLOAD ─────────────────────────────────────────────────────────────
+// FILE UPLOAD ───────────────
 const dropOverlay = document.getElementById('dropOverlay');
 dropOverlay.addEventListener('dragover',  e => { e.preventDefault(); dropOverlay.classList.add('over'); });
 dropOverlay.addEventListener('dragleave', ()=> dropOverlay.classList.remove('over'));
@@ -212,7 +207,7 @@ async function loadFile(file) {
   reader.readAsArrayBuffer(file);
 }
 
-// ─── RENDER PAGES ─────────────────────────────────────────────────────────────
+// RENDER PAGES ───────────────
 async function renderPages() {
   const container = document.getElementById('pagesContainer');
   container.innerHTML = '';
@@ -253,7 +248,6 @@ async function renderPages() {
     container.appendChild(wrap);
     pageInners[p] = inner;
 
-    // Click: signature or edit placement
     inner.addEventListener('click', e => {
       if (!placing && !placingEdit) return;
       const r  = inner.getBoundingClientRect();
@@ -285,7 +279,7 @@ async function renderPages() {
   setStatus('active', `${numPages} page${numPages>1?'s':''} loaded`);
 }
 
-// ─── SCAN FIELDS ─────────────────────────────────────────────────────────────
+// SCAN FIELDS ───────────────
 async function scanFields() {
   const badge = document.getElementById('scanBadge');
   badge.className='scan-badge scanning show';
@@ -293,7 +287,6 @@ async function scanFields() {
 
   let foundSig=0, foundEdit=0;
 
-  // Pass A: AcroForm
   try {
     const form  = pdfLibDoc.getForm();
     const flds  = form.getFields();
@@ -313,7 +306,6 @@ async function scanFields() {
           addField({ name, page:pg, x:rect.x, y:rect.y, width:Math.max(rect.width,120), height:Math.max(rect.height,30), isAcroForm:true, signed:false });
           foundSig++;
         } else {
-          // Detect if it looks like a date field
           const isDate = /date|dob|born/i.test(name);
           addEditField({ name, page:pg, x:rect.x, y:rect.y, width:Math.max(rect.width,100), height:Math.max(rect.height,20), fieldType:isDate?'date':'text', value:'', isAcroForm:true });
           foundEdit++;
@@ -322,10 +314,8 @@ async function scanFields() {
     }
   } catch(_) {}
 
-  // Pass B: text scan for signature AND edit fields
   const sigLabelPat = [ /^sign(ed|ature)?(\s+by)?[\s:_]*$/i, /^sig[\s:_]+$/i, /^initial(s)?[\s:_]*$/i, /^authorized\s+by[\s:_]*$/i, /^witness[\s:_]*$/i ];
   const sigPhrasePat= [ /sign\s+here/i, /applicant.{0,4}sign/i, /employee.{0,4}sign/i, /customer.{0,4}sign/i, /signature\s+of/i, /your\s+sign/i ];
-  // Edit field label patterns
   const editLabelPat= [
     { re:/^(full\s+)?name[\s:_]*$/i,      type:'text', label:'Name' },
     { re:/^(first|last)\s+name[\s:_]*$/i, type:'text', label:'Name' },
@@ -352,7 +342,6 @@ async function scanFields() {
       const raw  = (item.str||'').trim();
       if (!raw) continue;
 
-      // Store all text items for search
       allTextItems.push({
         page:p, str:raw,
         x:item.transform[4], y:item.transform[5],
@@ -362,7 +351,6 @@ async function scanFields() {
       const tx=item.transform[4], ty=item.transform[5];
       const tw=item.width||0,     th=item.height||12;
 
-      // ── Signature patterns ──
       const isLabel  = sigLabelPat.some(re => re.test(raw));
       const isPhrase = sigPhrasePat.some(re=> re.test(raw));
       if (isLabel || isPhrase) {
@@ -386,11 +374,9 @@ async function scanFields() {
         continue;
       }
 
-      // ── Edit field patterns ──
       const editMatch = editLabelPat.find(ep=>ep.re.test(raw));
       if (editMatch) {
         if (!editFields.some(f=>f.page===p&&Math.abs(f.x-tx)<120&&Math.abs(f.y-ty)<50)) {
-          // Place edit field after the label, on the underline
           let editX = tx+tw+4, editW=140;
           for (let j=idx+1;j<Math.min(idx+5,items.length);j++) {
             const nxt=items[j], ny=nxt.transform[5];
@@ -406,7 +392,6 @@ async function scanFields() {
     }
   }
 
-  // Badge
   const total = foundSig + foundEdit;
   if (total>0) {
     badge.className='scan-badge ok show';
@@ -419,7 +404,7 @@ async function scanFields() {
   updateEditBadge();
 }
 
-// ─── SIGNATURE FIELD MANAGEMENT ──────────────────────────────────────────────
+// SIGNATURE FIELD MANAGEMENT 
 function addField(f) { fields.push(f); renderFieldList(); renderOverlays(); updateFieldsBadge(); }
 
 function updateFieldsBadge() {
@@ -434,6 +419,20 @@ function renderFieldList() {
   const list = document.getElementById('fieldList');
   if (!fields.length) { list.innerHTML='<div class="field-empty">No signature fields yet.</div>'; checkDone(); return; }
   list.innerHTML='';
+
+  // FEATURE 1: "Sign All" button when sig is committed ──
+  if (sigDataUrlSaved && fields.some(f=>!f.signed)) {
+    const signAllBtn = document.createElement('button');
+    signAllBtn.className = 'btn btn-accent btn-full sign-all-btn';
+    signAllBtn.innerHTML = '✍ Apply signature to all fields';
+    signAllBtn.addEventListener('click', () => {
+      fields.forEach((f,i) => { if (!f.signed) { f.signed=true; f.sigDataUrl=sigDataUrlSaved; } });
+      renderFieldList(); renderOverlays(); updateFieldsBadge();
+      toast('🎉 Signature applied to all fields!');
+    });
+    list.appendChild(signAllBtn);
+  }
+
   fields.forEach((f,i) => {
     const el = document.createElement('div');
     el.className='fi'+(f.signed?' signed':'');
@@ -467,15 +466,37 @@ function renderOverlays() {
     del.addEventListener('click',e=>{e.stopPropagation();fields.splice(i,1);renderFieldList();renderOverlays();updateFieldsBadge();});
     el.appendChild(del);
 
+    // FEATURE 1: "Re-use" stamp button on unsigned overlays ──
+    if (!f.signed && sigDataUrlSaved) {
+      const reuseBtn = document.createElement('button');
+      reuseBtn.className = 'sig-ol-reuse';
+      reuseBtn.title = 'Apply saved signature';
+      reuseBtn.textContent = '✍ Apply';
+      reuseBtn.addEventListener('mousedown', e => e.stopPropagation()); // prevent drag hijack
+      reuseBtn.addEventListener('click', e => { e.stopPropagation(); applyField(i); });
+      el.appendChild(reuseBtn);
+    }
+
+    // FEATURE 3: Resize handle for signature overlays ──
+    const resizeHandle = document.createElement('div');
+    resizeHandle.className = 'ol-resize-handle';
+    resizeHandle.title = 'Resize';
+    el.appendChild(resizeHandle);
+    makeResizable(el, i, inner, 'sig');
+
     const tip=document.createElement('div'); tip.className='drag-tip'; tip.textContent='Drag to reposition'; el.appendChild(tip);
     makeDraggable(el, i, inner, 'sig');
 
-    if (!f.signed) el.addEventListener('click',e=>{ if(el.dataset.dragged==='1'){el.dataset.dragged='0';return;} applyField(i); });
+    if (!f.signed) el.addEventListener('click',e=>{
+      if(el.dataset.dragged==='1'){el.dataset.dragged='0';return;}
+      if(e.target.classList.contains('sig-ol-reuse')) return; // already handled
+      applyField(i);
+    });
     inner.appendChild(el);
   });
 }
 
-// ─── EDIT FIELD MANAGEMENT ───────────────────────────────────────────────────
+// EDIT FIELD MANAGEMENT ─────
 function addEditField(f) { editFields.push(f); renderEditFieldList(); renderEditOverlays(); updateEditBadge(); }
 
 function updateEditBadge() {
@@ -490,6 +511,30 @@ function renderEditFieldList() {
   const list=document.getElementById('editFieldList');
   if (!editFields.length) { list.innerHTML='<div class="field-empty">No edit fields detected yet.</div>'; return; }
   list.innerHTML='';
+
+  // FEATURE 1: "Fill all" button when any field has a value that can be copied ──
+  const filledFields = editFields.filter(f => f.value);
+  const hasEmptyText = editFields.some(f => !f.value && f.fieldType==='text');
+  const hasEmptyDate = editFields.some(f => !f.value && f.fieldType==='date');
+  if (filledFields.length > 0 && (hasEmptyText || hasEmptyDate)) {
+    const fillAllBtn = document.createElement('button');
+    fillAllBtn.className = 'btn btn-sm btn-ghost fill-all-btn';
+    fillAllBtn.innerHTML = '⊕ Copy filled values to matching empty fields';
+    fillAllBtn.addEventListener('click', () => {
+      let count = 0;
+      // For each field type, find the last filled value and propagate to empty ones
+      ['text','date'].forEach(type => {
+        const lastFilled = [...editFields].reverse().find(f => f.value && f.fieldType===type);
+        if (lastFilled) {
+          editFields.forEach(f => { if (!f.value && f.fieldType===type) { f.value=lastFilled.value; count++; } });
+        }
+      });
+      renderEditFieldList(); renderEditOverlays(); updateEditBadge();
+      toast(count > 0 ? `Filled ${count} empty field${count>1?'s':''}.` : 'No empty fields to fill.');
+    });
+    list.appendChild(fillAllBtn);
+  }
+
   editFields.forEach((f,i) => {
     const el=document.createElement('div');
     el.className='fi edit-fi'+(f.value?' filled':'');
@@ -521,16 +566,45 @@ function renderEditOverlays() {
 
     const handle=document.createElement('div'); handle.className='edit-ol-handle'; handle.textContent='⠿'; el.appendChild(handle);
     const del=document.createElement('button'); del.className='edit-ol-del'; del.textContent='×'; del.title='Remove';
+    del.addEventListener('mousedown', e => e.stopPropagation());
     del.addEventListener('click',e=>{e.stopPropagation();editFields.splice(i,1);renderEditFieldList();renderEditOverlays();updateEditBadge();});
     el.appendChild(del);
 
+    // FEATURE 1: Copy value to all empty same-type fields ──
+    if (f.value) {
+      const copyBtn = document.createElement('button');
+      copyBtn.className = 'edit-ol-copy';
+      copyBtn.title = 'Copy value to all empty fields of this type';
+      copyBtn.textContent = '⊕ Fill all';
+      copyBtn.addEventListener('mousedown', e => e.stopPropagation());
+      copyBtn.addEventListener('click', e => {
+        e.stopPropagation();
+        const count = editFields.filter((ef,j) => j!==i && ef.fieldType===f.fieldType && !ef.value).length;
+        editFields.forEach((ef,j) => { if (j!==i && ef.fieldType===f.fieldType && !ef.value) ef.value = f.value; });
+        renderEditFieldList(); renderEditOverlays(); updateEditBadge();
+        toast(count > 0 ? `Copied "${f.value.slice(0,20)}" to ${count} empty field${count>1?'s':''}.` : 'No empty fields of this type to fill.');
+      });
+      el.appendChild(copyBtn);
+    }
+
+    // FEATURE 3: Resize handle for edit overlays ──
+    const resizeHandle = document.createElement('div');
+    resizeHandle.className = 'ol-resize-handle';
+    resizeHandle.title = 'Resize field';
+    el.appendChild(resizeHandle);
+    makeResizable(el, i, inner, 'edit');
+
     makeDraggable(el, i, inner, 'edit');
-    el.addEventListener('click',e=>{ if(el.dataset.dragged==='1'){el.dataset.dragged='0';return;} openEditPopover(i); });
+    el.addEventListener('click',e=>{
+      if(el.dataset.dragged==='1'){el.dataset.dragged='0';return;}
+      if(e.target.classList.contains('edit-ol-copy')) return; // already handled
+      openEditPopover(i);
+    });
     inner.appendChild(el);
   });
 }
 
-// ─── EDIT POPOVER ─────────────────────────────────────────────────────────────
+// EDIT POPOVER ───────────────
 function openEditPopover(idx) {
   activeEditIdx = idx;
   const f = editFields[idx];
@@ -544,14 +618,15 @@ function openEditPopover(idx) {
   const popover = document.getElementById('editPopover');
   const input   = document.getElementById('editPopoverInput');
 
-  // Position popover near field
   const top  = innerRect.top  + py - 80;
   const left = innerRect.left + px;
   popover.style.top  = Math.max(60, top) + 'px';
   popover.style.left = Math.min(left, window.innerWidth - 340) + 'px';
   popover.style.display = 'block';
 
-  // Set appropriate input type and placeholder
+  // FEATURE 2: No maxlength restriction on the input
+  input.removeAttribute('maxlength');
+
   if (f.fieldType === 'date') {
     input.type = 'date';
     input.placeholder = '';
@@ -578,12 +653,11 @@ function applyEditPopover() {
   renderEditFieldList();
   renderEditOverlays();
   updateEditBadge();
-  toast(val ? `Saved: "${val}"` : 'Field cleared.');
+  toast(val ? `Saved: "${val.slice(0,40)}${val.length>40?'…':''}"` : 'Field cleared.');
 }
 function cancelEditPopover() { activeEditIdx=null; closeEditPopover(); }
 function closeEditPopover()  { document.getElementById('editPopover').style.display='none'; }
 
-// Close popover on outside click
 document.addEventListener('click', e => {
   const pop=document.getElementById('editPopover');
   if (pop.style.display!=='none' && !pop.contains(e.target) && !e.target.classList.contains('edit-ol')) {
@@ -591,12 +665,75 @@ document.addEventListener('click', e => {
   }
 });
 
-// ─── MAKE DRAGGABLE (shared for sig & edit overlays) ─────────────────────────
+// MAKE RESIZABLE (FEATURE 3) 
+function makeResizable(el, fieldIndex, pageInner, kind) {
+  const handle = el.querySelector('.ol-resize-handle');
+  if (!handle) return;
+
+  let startX, startY, startW, startH, resizing = false;
+
+  function onStart(e) {
+    e.preventDefault(); e.stopPropagation();
+    resizing = true;
+    const src = e.touches ? e.touches[0] : e;
+    startX = src.clientX; startY = src.clientY;
+    startW = el.offsetWidth; startH = el.offsetHeight;
+    el.classList.add('resizing');
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onEnd);
+    document.addEventListener('touchmove', onMove, { passive: false });
+    document.addEventListener('touchend', onEnd);
+  }
+
+  function onMove(e) {
+    if (!resizing) return;
+    if (e.cancelable) e.preventDefault();
+    const src = e.touches ? e.touches[0] : e;
+    const dx = src.clientX - startX;
+    const dy = src.clientY - startY;
+    const newW = Math.max(60, startW + dx);
+    const newH = Math.max(20, startH + dy);
+
+    // Clamp to page boundary
+    const pW = pageInner.offsetWidth, pH = pageInner.offsetHeight;
+    const left = parseFloat(el.style.left) || 0;
+    const top  = parseFloat(el.style.top) || 0;
+    const clampedW = Math.min(newW, pW - left);
+    const clampedH = Math.min(newH, pH - top);
+
+    el.style.width  = clampedW + 'px';
+    el.style.height = clampedH + 'px';
+  }
+
+  function onEnd() {
+    if (!resizing) return;
+    resizing = false;
+    el.classList.remove('resizing');
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onEnd);
+    document.removeEventListener('touchmove', onMove);
+    document.removeEventListener('touchend', onEnd);
+
+    // Sync back to PDF coordinate space
+    const fArr = kind === 'edit' ? editFields : fields;
+    const { scale, rendH } = pageInfo[fArr[fieldIndex].page];
+    fArr[fieldIndex].width  = el.offsetWidth  / scale;
+    fArr[fieldIndex].height = el.offsetHeight / scale;
+
+    toast('Field resized.');
+  }
+
+  handle.addEventListener('mousedown', onStart);
+  handle.addEventListener('touchstart', onStart, { passive: false });
+}
+
+// MAKE DRAGGABLE ─────────────
 function makeDraggable(el, fieldIndex, pageInner, kind) {
   let startX,startY,startLeft,startTop,dragging=false;
 
   function onStart(e) {
-    if (e.target.classList.contains('sig-ol-del')||e.target.classList.contains('edit-ol-del')) return;
+    // Don't drag if clicking resize handle or delete
+    if (e.target.classList.contains('sig-ol-del') || e.target.classList.contains('edit-ol-del') || e.target.classList.contains('ol-resize-handle') || e.target.classList.contains('sig-ol-reuse') || e.target.classList.contains('edit-ol-copy')) return;
     e.preventDefault(); e.stopPropagation();
     dragging=true; el.dataset.dragged='0';
     const src=e.touches?e.touches[0]:e;
@@ -641,15 +778,14 @@ function makeDraggable(el, fieldIndex, pageInner, kind) {
   el.addEventListener('touchstart',onStart,{passive:false});
 }
 
-// ─── APPLY SIGNATURE ─────────────────────────────────────────────────────────
+// APPLY SIGNATURE ───────────
 function applyField(i) {
-  // Always prefer the committed save; auto-commit from live canvas as fallback
   if (!sigDataUrlSaved && hasSig) {
     sigDataUrlSaved = sigCanvas.toDataURL('image/png');
     updateSigBadge();
   }
   const dataUrl = sigDataUrlSaved;
-  if (!dataUrl) { toast('Draw your signature first tap ✍ in the toolbar.'); openModal('signature'); return; }
+  if (!dataUrl) { toast('Draw your signature first andtap ✍ in the toolbar.'); openModal('signature'); return; }
   fields[i].signed=true; fields[i].sigDataUrl=dataUrl;
   renderFieldList(); renderOverlays(); updateFieldsBadge();
   const inner=pageInners[fields[i].page]; if(inner) inner.scrollIntoView({behavior:'smooth',block:'center'});
@@ -664,7 +800,7 @@ function checkDone() {
   if (done) document.getElementById('islDownload').querySelector('.isl-icon').textContent='🎉';
 }
 
-// ─── MANUAL PLACEMENT ────────────────────────────────────────────────────────
+// MANUAL PLACEMENT ──────────
 document.getElementById('btnStartPlace').addEventListener('click', () => {
   const type = document.querySelector('.place-type-btn.active')?.dataset.ptype || 'signature';
   placingType = type;
@@ -680,10 +816,8 @@ document.getElementById('btnStartPlace').addEventListener('click', () => {
   closeModal('place');
 });
 
-// "Add edit field manually" button inside Edit modal
 document.getElementById('btnPlaceEdit').addEventListener('click', () => {
   closeModal('edit');
-  // Pre-select text type and open place modal
   document.querySelectorAll('.place-type-btn').forEach(b=>b.classList.remove('active'));
   document.querySelector('.place-type-btn[data-ptype="text"]').classList.add('active');
   openModal('place');
@@ -700,7 +834,7 @@ function exitPlace() {
   document.getElementById('placingHint').classList.remove('show');
 }
 
-// ─── DOWNLOAD ────────────────────────────────────────────────────────────────
+// DOWNLOAD ──────────────────
 async function handleDownload() {
   const btn=document.getElementById('islDownload');
   btn.disabled=true; btn.querySelector('.isl-label').textContent='Building…';
@@ -709,10 +843,8 @@ async function handleDownload() {
     try { outDoc.getForm().flatten(); } catch(_){}
     const pages=outDoc.getPages();
 
-    // Embed a standard font for text overlays
     const font = await outDoc.embedFont(StandardFonts.Helvetica);
 
-    // Write signature fields
     for (const f of fields) {
       if (!f.signed||!f.sigDataUrl) continue;
       const page=pages[f.page-1]; if(!page) continue;
@@ -723,17 +855,17 @@ async function handleDownload() {
       page.drawImage(img,{x:f.x,y:f.y,width:f.width,height:f.height});
     }
 
-    // Write edit (text/date) fields
+    // FEATURE 2: No maxWidth restriction andtext flows freely
     for (const f of editFields) {
       if (!f.value) continue;
       const page=pages[f.page-1]; if(!page) continue;
       const fontSize = Math.min(f.height*0.62, 13);
       const displayVal = f.fieldType==='date' ? formatDateDisplay(f.value) : f.value;
+      // Removed maxWidth so text has no character/width limit
       page.drawText(displayVal, {
         x: f.x+3, y: f.y+4,
         size: fontSize, font,
-        color: rgb(0.1,0.1,0.1),
-        maxWidth: f.width-6
+        color: rgb(0.1,0.1,0.1)
       });
     }
 
@@ -754,7 +886,6 @@ async function handleDownload() {
 
 function formatDateDisplay(val) {
   if (!val) return '';
-  // val may be YYYY-MM-DD from date input
   if (/^\d{4}-\d{2}-\d{2}$/.test(val)) {
     const [y,m,d]=val.split('-');
     const months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -763,7 +894,7 @@ function formatDateDisplay(val) {
   return val;
 }
 
-// ─── SEARCH ──────────────────────────────────────────────────────────────────
+// SEARCH ────────────────────
 const searchInput   = document.getElementById('searchInput');
 const searchClear   = document.getElementById('searchClear');
 const searchResults = document.getElementById('searchResults');
@@ -786,14 +917,12 @@ function onSearchInput() {
 function runSearch(q) {
   const results = [];
 
-  // Search signature fields
   fields.forEach((f,i) => {
     if (f.name.toLowerCase().includes(q)) {
       results.push({ kind:'sig', label:f.name, sub:`Page ${f.page} · ${f.signed?'Signed':'Unsigned'}`, icon:'✍', idx:i, page:f.page });
     }
   });
 
-  // Search edit fields
   editFields.forEach((f,i) => {
     const haystack = (f.name+' '+f.value).toLowerCase();
     if (haystack.includes(q)) {
@@ -801,11 +930,9 @@ function runSearch(q) {
     }
   });
 
-  // Search document text
   const textHits = [];
   allTextItems.forEach((item,i) => {
     if (item.str.toLowerCase().includes(q)) {
-      // Highlight match
       const lo=item.str.toLowerCase(), pos=lo.indexOf(q);
       const before=item.str.slice(0,pos);
       const match =item.str.slice(pos,pos+q.length);
@@ -813,7 +940,6 @@ function runSearch(q) {
       textHits.push({ kind:'text', label:item.str, before, match, after, icon:'📄', page:item.page, x:item.x, y:item.y, w:item.w, h:item.h });
     }
   });
-  // Deduplicate text hits to 6 max
   textHits.slice(0,6).forEach(h=>results.push(h));
 
   renderSearchResults(results, q);
@@ -867,23 +993,17 @@ function scrollToResult(r) {
     const inner = pageInners[fArr[r.idx].page];
     if (inner) {
       inner.scrollIntoView({behavior:'smooth',block:'center'});
-      // Flash the overlay
       const ols = inner.querySelectorAll(r.kind==='sig'?'.sig-ol':'.edit-ol');
-      const fInfo=pageInfo[fArr[r.idx].page];
-      // Find by position proximity
       ols.forEach(ol => {
         ol.style.outline='2.5px solid #f59e0b';
         setTimeout(()=>ol.style.outline='',1500);
       });
     }
   } else if (r.kind==='text') {
-    // Scroll to the page containing the text
     const inner = pageInners[r.page];
     if (inner) {
-      // Scroll text item into view
       const { scale, rendH } = pageInfo[r.page];
       const py = rendH - (r.y + r.h) * scale;
-      // Create a temporary highlight element
       const hl=document.createElement('div');
       hl.style.cssText=`position:absolute;left:${r.x*scale}px;top:${py}px;width:${Math.max(r.w*scale,60)}px;height:${r.h*scale+4}px;background:rgba(245,158,11,.3);border-radius:3px;pointer-events:none;z-index:50;transition:opacity .5s;`;
       inner.appendChild(hl);
@@ -897,7 +1017,7 @@ function esc(str) {
   return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
-// ─── UTILS ───────────────────────────────────────────────────────────────────
+// UTILS ─────────────────────
 function setStatus(cls,txt) {
   document.getElementById('statusPill').className='status-pill '+cls;
   document.getElementById('statusTxt').textContent=txt;

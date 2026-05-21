@@ -58,7 +58,7 @@ The interface is built around a **full-bleed document viewer** and a **dynamic i
 - **Clear button** wipe and redraw at any time
 
 ### Edit Fields (Text & Date)
-- **Auto-detection** scans every page for label-style field indicators: Name, Date, Email, Phone, Title, Company, Address, Print Name, and more
+- **Auto-detection** scans every page for label-style field indicators: Name, Date, Email, Phone, Title, Company, Address, Print Name and more
 - **AcroForm text fields** reads existing interactive `PDFTextField` fields from the document
 - **Inline popover editor** clicking any edit overlay opens a small popover positioned near the field with a context-appropriate input (`text` or `date`)
 - **Date formatting** date inputs are formatted as "15 Jan 2025" in the downloaded PDF
@@ -90,8 +90,8 @@ The interface is built around a **full-bleed document viewer** and a **dynamic i
 
 ### Search
 - **Center search bar** always centered in the top bar between the logo and status pill, at any screen width
-- **Searches three categories** simultaneously: signature field names, edit field names and values, and all raw text items extracted from every page
-- **Grouped results** results appear in a dropdown grouped as "Signature Fields", "Edit Fields", and "In Document"
+- **Searches three categories** simultaneously: signature field names, edit field names and values and all raw text items extracted from every page
+- **Grouped results** results appear in a dropdown grouped as "Signature Fields", "Edit Fields" and "In Document"
 - **Match highlighting** matched characters are highlighted in yellow within in-document text results
 - **Click to navigate** clicking any result scrolls the document to that field or text item and flashes a temporary amber highlight
 
@@ -154,7 +154,7 @@ FileReader reads as ArrayBuffer
 
 ## Getting Started
 
-SignFlow is three files: `index.html`, `styles.css`, and `script.js`. There is no build step, no package manager, no server required.
+SignFlow is three files: `index.html`, `styles.css` and `script.js`. There is no build step, no package manager, no server required.
 
 **To run locally:**
 
@@ -336,7 +336,7 @@ pdfY = pageHeightInPoints - (canvasPixelY / scale)
 pdfX = canvasPixelX / scale
 ```
 
-This conversion is applied when placing manual fields, when syncing dragged positions, and when embedding content into the output PDF.
+This conversion is applied when placing manual fields, when syncing dragged positions and when embedding content into the output PDF.
 
 ### Signature capture
 
@@ -458,13 +458,13 @@ const editLabelPat = [
 - **Initials support** separate smaller pad for initials fields
 - **Multi-signer workflow** email-based signing links with a backend session store
 - **Cryptographic signing** embed a self-signed or CA-issued X.509 certificate for tamper evidence
-- **Audit certificate page** append a final page logging signer IP, user agent, and timestamp
+- **Audit certificate page** append a final page logging signer IP, user agent and timestamp
 - **Signature presets** save drawn signatures to `localStorage` for reuse across sessions
 - **Typed signature** generate a stylised text-based signature as an alternative to drawing
 - **Zoom controls** zoom in/out on the document preview for precision placement
 - **Password-protected PDF support** prompt for a password and decrypt before loading
 - **Dark mode** honour `prefers-color-scheme: dark`
-- **Non-English label detection** extend pattern matching for French, German, Spanish, and other common document languages
+- **Non-English label detection** extend pattern matching for French, German, Spanish and other common document languages
 
 ---
 
@@ -474,4 +474,4 @@ This project is released as open source. You are free to use, modify and distrib
 
 ---
 
-*Built with pdf.js, pdf-lib, and vanilla JavaScript. No frameworks were harmed in the making of this tool.*
+*Built with pdf.js, pdf-lib and vanilla JavaScript. No frameworks were harmed in the making of this tool.*

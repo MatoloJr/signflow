@@ -75,7 +75,7 @@ body {
   white-space: nowrap;
 }
 
-/* ── SEARCH ── */
+/* SEARCH */
 .search-wrap {
   position: relative;
   width: 100%;
@@ -207,7 +207,7 @@ body {
   width: 100%;
 }
 
-/* ── DROP OVERLAY ── */
+/* DROP OVERLAY */
 .drop-overlay {
   position: absolute; inset: 0;
   display: flex; align-items: center; justify-content: center;
@@ -235,7 +235,7 @@ body {
 .drop-title { font-family: var(--font-d); font-style: italic; font-size: 1.4rem; color: var(--ink2); }
 .drop-sub { font-size: 12px; color: var(--ink3); }
 
-/* ── PAGE WRAP ── */
+/* PAGE WRAP */
 .page-wrap {
   position: relative;
   background: #fff;
@@ -249,12 +249,11 @@ body {
 .page-lbl { font-size: 10px; color: var(--ink3); text-align: center; padding: 5px 0; letter-spacing: .05em; text-transform: uppercase; }
 .page-inner { position: relative; }
 
-/* ────────────────────── DYNAMIC ISLAND BAR ────────────────── */
+/* ────────────────────────── DYNAMIC ISLAND BAR ────────────────── */
 .island-bar {
   position: fixed;
   bottom: 0; left: 0; right: 0;
   z-index: 190;
-  /* Full-width, flush to bottom edges */
   padding: 0 0 env(safe-area-inset-bottom, 0);
   background: var(--glass);
   backdrop-filter: blur(24px) saturate(1.6);
@@ -378,7 +377,7 @@ body {
 .modal-close:hover { background: var(--bg3); }
 .modal-body { padding: 1rem 1.25rem 1.6rem; display: flex; flex-direction: column; gap: .85rem; }
 
-/* ── DROPZONE ── */
+/* DROPZONE */
 .dropzone {
   border: 1.5px dashed var(--bg3); border-radius: var(--r);
   padding: 1.6rem 1rem; text-align: center; cursor: pointer;
@@ -415,7 +414,7 @@ body {
 .scan-badge b { display: block; font-weight: 600; margin-bottom: 2px; }
 .privacy-note { font-size: 11px; color: var(--ink3); text-align: center; line-height: 1.55; }
 
-/* ── SIGNATURE PAD ── */
+/* SIGNATURE PAD */
 .sigpad-wrap {
   background: var(--bg); border: 1.5px solid var(--bg3);
   border-radius: var(--r); overflow: hidden; position: relative;
@@ -429,11 +428,11 @@ body {
   border-radius: var(--r); padding: 10px 13px; font-size: 12px; color: #7a5200; line-height: 1.55;
 }
 
-/* ── EDIT MODAL ── */
+/* EDIT MODAL */
 .edit-intro { font-size: 12px; color: var(--ink3); line-height: 1.6; }
 .edit-actions { margin-top: 4px; }
 
-/* ── FIELD LIST (shared) ── */
+/* FIELD LIST (shared) */
 .field-list { display: flex; flex-direction: column; gap: 6px; }
 .fi {
   display: flex; align-items: center; gap: 9px;
@@ -457,6 +456,25 @@ body {
 .fi.filled .fi-tag  { background: var(--edit-bg);   color: var(--edit-col); }
 .field-empty { font-size: 12px; color: var(--ink3); text-align: center; padding: 16px 0; line-height: 1.7; }
 
+/* FEATURE 1: Sign-All / Fill-All buttons */
+.sign-all-btn {
+  margin-bottom: 2px;
+  font-size: 12px !important;
+  padding: 9px 14px !important;
+  animation: pulse-accent 2s ease-in-out infinite;
+}
+.fill-all-btn {
+  margin-bottom: 2px;
+  font-size: 11px !important;
+  padding: 7px 12px !important;
+  border: 1px dashed var(--edit-bdr) !important;
+  color: var(--edit-col) !important;
+}
+@keyframes pulse-accent {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(26,92,62,.25); }
+  50%       { box-shadow: 0 0 0 5px rgba(26,92,62,0); }
+}
+
 .signed-banner {
   display: none; align-items: center; gap: 8px;
   padding: 10px 13px; background: var(--accent-bg);
@@ -465,7 +483,7 @@ body {
 }
 .signed-banner.show { display: flex; }
 
-/* ── PLACE MODAL ── */
+/* PLACE MODAL */
 .place-type-row {
   display: flex; gap: 8px;
 }
@@ -484,7 +502,7 @@ body {
 .manual-tip { display: none; padding: 10px 13px; background: var(--gold-bg); border: 1px solid var(--gold-bdr); border-radius: var(--r); font-size: 12px; color: #7a5200; line-height: 1.55; }
 .manual-tip.show { display: block; }
 
-/* ── PLACING HINT ── */
+/* PLACING HINT */
 .placing-hint {
   position: fixed;
   bottom: calc(var(--island-h) + 10px);
@@ -504,7 +522,7 @@ body {
   opacity: 1;
 }
 
-/* ── BUTTONS ── */
+/* BUTTONS */
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   padding: 9px 16px; border-radius: 9px; font-family: var(--font);
@@ -524,7 +542,7 @@ body {
 .btn-ghost   { background: transparent; border-color: transparent; color: var(--ink3); }
 .btn-ghost:hover { background: var(--bg2); color: var(--ink2); }
 
-/* ── SIG OVERLAYS ── */
+/* SIG OVERLAYS */
 .sig-ol {
   position: absolute;
   border: 2px dashed var(--accent2); border-radius: 5px;
@@ -538,6 +556,11 @@ body {
   cursor: grabbing; opacity: .85;
   box-shadow: 0 8px 32px rgba(28,26,22,.22);
   border-style: solid; z-index: 99; transition: none;
+}
+.sig-ol.resizing {
+  opacity: .85;
+  box-shadow: 0 8px 32px rgba(28,26,22,.22);
+  z-index: 99; transition: none;
 }
 .sig-ol.signed {
   border: 2px dashed rgba(39,134,90,.35);
@@ -562,6 +585,11 @@ body {
 .edit-ol.filled {
   border: 2px solid #5b89d8;
   background: rgba(234,240,251,.35);
+}
+.edit-ol.resizing {
+  opacity: .85;
+  box-shadow: 0 8px 32px rgba(28,26,22,.22);
+  z-index: 99; transition: none;
 }
 .edit-ol-text {
   font-size: 12px; color: var(--edit-col); font-weight: 500;
@@ -606,6 +634,64 @@ body {
 .sig-ol:hover .sig-ol-del { opacity: 1; }
 .edit-ol:hover .edit-ol-del { opacity: 1; }
 
+/* FEATURE 1: Re-use signature button on unsigned overlays */
+.sig-ol-reuse {
+  position: absolute; bottom: -11px; left: 50%; transform: translateX(-50%);
+  height: 20px; padding: 0 8px;
+  border-radius: 10px;
+  background: var(--accent); color: #fff; font-size: 9px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; border: none; opacity: 0; transition: opacity .15s; z-index: 6;
+  white-space: nowrap; letter-spacing: .04em;
+  pointer-events: auto;
+}
+.sig-ol:hover .sig-ol-reuse { opacity: 1; }
+
+/* FEATURE 1: Copy-value button on filled edit overlays */
+.edit-ol-copy {
+  position: absolute; bottom: -11px; left: 50%; transform: translateX(-50%);
+  height: 20px; padding: 0 8px;
+  border-radius: 10px;
+  background: var(--edit-col); color: #fff; font-size: 9px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; border: none; opacity: 0; transition: opacity .15s; z-index: 6;
+  white-space: nowrap; letter-spacing: .04em;
+  pointer-events: auto;
+}
+.edit-ol:hover .edit-ol-copy { opacity: 1; }
+
+/* FEATURE 3: Shared resize handle for both overlay types */
+.ol-resize-handle {
+  position: absolute; bottom: -5px; right: -5px;
+  width: 16px; height: 16px;
+  background: var(--surface);
+  border: 2px solid var(--bg3);
+  border-radius: 3px;
+  cursor: se-resize;
+  opacity: 0;
+  transition: opacity .15s, border-color .15s, background .15s;
+  z-index: 7;
+  pointer-events: auto;
+  /* Diagonal resize icon using CSS */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath d='M2 8 L8 2 M5 8 L8 5' stroke='%238a867c' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 10px;
+}
+.sig-ol:hover .ol-resize-handle,
+.edit-ol:hover .ol-resize-handle { opacity: 1; border-color: var(--accent2); }
+.edit-ol:hover .ol-resize-handle { border-color: #5b89d8; }
+.ol-resize-handle:hover {
+  opacity: 1 !important;
+  background-color: var(--accent-bg);
+  border-color: var(--accent) !important;
+  transform: scale(1.2);
+}
+.edit-ol .ol-resize-handle:hover {
+  background-color: var(--edit-bg);
+  border-color: var(--edit-col) !important;
+}
+
 .drag-tip {
   position: absolute; bottom: -22px; left: 50%; transform: translateX(-50%);
   font-size: 9px; color: var(--ink3); white-space: nowrap;
@@ -614,7 +700,7 @@ body {
 }
 .sig-ol:hover .drag-tip { opacity: 1; }
 
-/* ── EDIT POPOVER ── */
+/* EDIT POPOVER */
 .edit-popover {
   position: fixed;
   z-index: 350;
@@ -637,11 +723,12 @@ body {
   outline: none;
   background: var(--bg);
   margin-bottom: 9px;
+  /* FEATURE 2: no maxlength, no width constraint */
 }
 .edit-popover-input:focus { border-color: #5b89d8; }
 .edit-popover-actions { display: flex; gap: 8px; justify-content: flex-end; }
 
-/* ── TOAST ── */
+/* TOAST */
 .toast {
   position: fixed;
   bottom: calc(var(--island-h) + 10px); right: 14px;
@@ -656,7 +743,7 @@ body {
 }
 .toast.show { transform: translateY(0); opacity: 1; }
 
-/* ── RESPONSIVE ── */
+/* RESPONSIVE */
 @media (max-width: 380px) {
   .isl-label { font-size: 8px; }
   .isl-icon  { font-size: 1.1rem; }
